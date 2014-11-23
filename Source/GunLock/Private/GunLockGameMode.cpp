@@ -149,7 +149,7 @@ void AGunLockGameMode::Tick(float DeltaSeconds)
 		SpawnedWeaponCount++;
 	}
 
-	for (; SpawnedMagazineCount < LivingPlayers*2;)
+	for (; SpawnedMagazineCount < LivingPlayers*3;)
 	{
 		if (EmptyItemSpawnPoints.Num() == 0 || MagazineBlueprints.Num() == 0)
 			break;

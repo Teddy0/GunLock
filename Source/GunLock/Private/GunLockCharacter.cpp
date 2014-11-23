@@ -176,11 +176,12 @@ void AGunLockCharacter::OnDeath()
 	if (PlayerController && Role == ROLE_Authority)
 	{
 		GetWorldTimerManager().SetTimer(PlayerController, &APlayerController::ServerRestartPlayer, 10.f);
-		GetWorldTimerManager().SetTimer(this, &AGunLockCharacter::K2_DestroyActor, 120.f);
 	}
 
 	bReplicateMovement = false;
 	bTearOff = true;
+
+	SetLifeSpan(120.f);
 
 	DetachFromControllerPendingDestroy();
 
@@ -685,7 +686,8 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 		//Default to idle pose, allow logic/states to override
 		FVector RightHandTargetLocation;
 		FRotator RightHandTargetRotation;
-		float MaxRightHandVelocity = 180.f;
+		float MaxRightHandVelocity = 120.f;
+		float MaxLeftHandVelocity = 120.f;
 		if (NewRightHandPose == RightHand_Idle)
 		{
 			static FVector RightHandIdleLocation = FVector(0.f, 28.f, -16.f);
@@ -750,6 +752,9 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			//Add in kickback from shooting (todo; kickback in other states?)
 			RightHandTargetLocation += CurrentWeapon->KickbackAlpha * -8.f * RightHandTargetRotation.Vector();
 			RightHandTargetRotation += CurrentWeapon->KickbackAlpha * FRotator(30.f, 0.f, 0.f);
+
+			MaxRightHandVelocity = 180.f;
+			MaxLeftHandVelocity = 180.f;
 		}
 
 		//Animate towards the target location
@@ -762,6 +767,7 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			float LerpAlpha = FMath::Clamp(HandVelocity / TargetDistance, 0.f, 1.f);
 			NewRightHandLocation = FMath::Lerp(RightHandLocation, RightHandTargetLocation, LerpAlpha);
 			NewRightHandRotation = FMath::Lerp(RightHandRotation, RightHandTargetRotation, LerpAlpha);
+			NewRightHandRotation.Normalize();
 		}
 
 		//Left hand animations
@@ -784,7 +790,7 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 		}
 		else if (NewLeftHandPose == LeftHand_Drop)
 		{
-			static FVector LeftHandMagazineLocation = FVector(28.f, -12.f, 16.f);
+			static FVector LeftHandMagazineLocation = FVector(28.f, -12.f, -16.f);
 			static FRotator LeftHandMagazineRotation = FRotator(0.f, 0.f, 0.f);
 			LeftHandTargetLocation = LeftHandMagazineLocation + CrouchZOffset;
 			LeftHandTargetRotation = LeftHandMagazineRotation;
@@ -814,10 +820,10 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 		else if (NewLeftHandPose == LeftHand_InsertMagazine)
 		{
 			static FVector MagazineSlideLocation = FVector(-8.f, 10.f, 0.f);
-			static FRotator MagazineOffsetRotation = FRotator(90.f, -90.f, -90.f);
+			static FRotator MagazineRotation = FRotator(0.f, 0.f, 45.f);
 			check(CurrentWeapon);
 			LeftHandTargetLocation = ActorToWorld().InverseTransformPosition(CurrentWeapon->GunMesh->GetSocketLocation(TEXT("Magazine"))) + MagazineSlideLocation;
-			LeftHandTargetRotation = CurrentWeapon->GunMesh->GetSocketRotation(TEXT("Magazine")) - ActorToWorld().Rotator() + MagazineOffsetRotation;
+			LeftHandTargetRotation = MagazineRotation;
 		}
 		else if (NewLeftHandPose == LeftHand_Magazine)
 		{
@@ -833,10 +839,11 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 		LeftHandTargetRotation.Normalize();
 		{
 			float TargetDistance = (LeftHandTargetLocation - LeftHandLocation).Size();
-			float HandVelocity = MaxRightHandVelocity * DeltaSeconds;
+			float HandVelocity = MaxLeftHandVelocity * DeltaSeconds;
 			float LerpAlpha = FMath::Clamp(HandVelocity / TargetDistance, 0.f, 1.f);
 			NewLeftHandLocation = FMath::Lerp(LeftHandLocation, LeftHandTargetLocation, LerpAlpha);
 			NewLeftHandRotation = FMath::Lerp(LeftHandRotation, LeftHandTargetRotation, LerpAlpha);
+			NewLeftHandRotation.Normalize();
 		}
 
 		//Set the info locally, and send it to the server for replication

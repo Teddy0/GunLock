@@ -18,7 +18,9 @@ AGunLockItem::AGunLockItem(const class FPostConstructInitializeProperties& PCIP)
 void AGunLockItem::ItemPickedup(AGunLockCharacter* NewOwner)
 {
 	AGunLockCharacter* OldOwner = Cast<AGunLockCharacter>(GetOwner());
-	check(OldOwner == NULL || OldOwner == NewOwner || OldOwner->bIsDead);
+	if (OldOwner == NewOwner)
+		OldOwner = NULL;
+	check(OldOwner == NULL || OldOwner->bIsDead);
 
 	//Take it from their cold, dead hands
 	if (OldOwner && OldOwner->LeftHandItem == this)

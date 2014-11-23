@@ -6,6 +6,14 @@ public class GunLock : ModuleRules
 {
     public GunLock(TargetInfo Target)
 	{
+        PublicDependencyModuleNames.AddRange(
+           new string[]
+                {
+				    "OnlineSubsystem",
+				    "OnlineSubsystemUtils",
+			    }
+                );
+
         PrivateDependencyModuleNames.AddRange(
                 new string[]
 				{
@@ -17,6 +25,6 @@ public class GunLock : ModuleRules
 				}
                 );
 
-		//PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore" });
+        DynamicallyLoadedModuleNames.Add("OnlineSubsystemNull");
 	}
 }
