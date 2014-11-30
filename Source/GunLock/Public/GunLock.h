@@ -28,3 +28,4 @@ enum ELeftHandState
 #include "Engine.h"
 #include "GunLockClasses.h"
 
+FLinearColor GetPlayerColor(uint32 SkinId);

@@ -14,6 +14,7 @@ AGunLockCharacter::AGunLockCharacter(const class FPostConstructInitializePropert
 	, bLeftTrigger(false)
 	, bRightTrigger(false)
 	, bAimEyeRight(true)
+	, bHasSpawnedGunForPlayer(false)
 {
 	// Set size for collision capsule
 	CapsuleComponent->InitCapsuleSize(42.f, 96.0f);
@@ -46,8 +47,11 @@ AGunLockCharacter::AGunLockCharacter(const class FPostConstructInitializePropert
 	LeftHandLocation = FVector(0.f, 0.f, 0.f);
 	LeftHandRotation = FRotator(0.f, 0.f, 0.f);
 	AimingAlpha = 0.f;
+	PantingAlpha = 0.f;
 	CrouchingAlpha = 0.f;
 	TimeToNextUpdate = 0.f;
+	PressedReloadTime = 0.f;
+	PressedHolsterTime = 0.f;
 
 	// Tweaking values
 	EyeSocketOffset = FVector(10.f, 0.f, 8.f);
@@ -58,6 +62,7 @@ void AGunLockCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 
+	BodyMaterial = Mesh->CreateAndSetMaterialInstanceDynamic(0);
 	SkinMaterial = Mesh->CreateAndSetMaterialInstanceDynamic(1);
 }
 
@@ -75,6 +80,11 @@ void AGunLockCharacter::Destroyed()
 	{
 		LeftHandItem->Destroy();
 		LeftHandItem = NULL;
+	}
+	if (HolsteredItem)
+	{
+		HolsteredItem->Destroy();
+		HolsteredItem = NULL;
 	}
 }
 
@@ -111,8 +121,10 @@ void AGunLockCharacter::SetupPlayerInputComponent(class UInputComponent* InputCo
 
 	//Weapon inputs
 	InputComponent->BindAction("Interact", IE_Pressed, this, &AGunLockCharacter::OnInteractButton);
-	InputComponent->BindAction("Reload", IE_Pressed, this, &AGunLockCharacter::OnReloadButton);
-	InputComponent->BindAction("Holster", IE_Pressed, this, &AGunLockCharacter::OnHolster);
+	InputComponent->BindAction("Reload", IE_Pressed, this, &AGunLockCharacter::OnReloadPressed);
+	InputComponent->BindAction("Reload", IE_Released, this, &AGunLockCharacter::OnReloadReleased);
+	InputComponent->BindAction("Holster", IE_Pressed, this, &AGunLockCharacter::OnHolsterPressed);
+	InputComponent->BindAction("Holster", IE_Released, this, &AGunLockCharacter::OnHolsterReleased);
 	InputComponent->BindAction("PullSlide", IE_Pressed, this, &AGunLockCharacter::OnPullSlidePressed);
 	InputComponent->BindAction("PullSlide", IE_Released, this, &AGunLockCharacter::OnPullSlideReleased);
 
@@ -142,6 +154,12 @@ float AGunLockCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 			{
 				MovementComponent->ForceReplicationUpdate();
 			}
+
+			//Simple scoring. +1 for kill, -1 for death
+			if (PlayerState)
+				PlayerState->Score -= 1.0f;
+			if (EventInstigator && EventInstigator->PlayerState)
+				EventInstigator->PlayerState->Score += 1.0f;
 
 			bIsDead = true;
 
@@ -283,6 +301,9 @@ void AGunLockCharacter::TouchStarted(const ETouchIndex::Type FingerIndex, const 
 
 void AGunLockCharacter::OnInteractButton()
 {
+	if (bReachingForHolster)
+		return;
+
 	if (CurrentInteractionTarget)
 		ServerInteractWithItem(CurrentInteractionTarget);
 }
@@ -297,8 +318,7 @@ void AGunLockCharacter::ServerInteractWithItem_Implementation(AGunLockItem* Inte
 	if (!InteractionTarget || ((InteractionTarget->RightItemHand() && RightHandItem) || (!InteractionTarget->RightItemHand() && LeftHandItem)))
 		return;
 
-	AGunLockCharacter* ItemOwner = Cast<AGunLockCharacter>(InteractionTarget->GetOwner());
-	if (ItemOwner && !ItemOwner->bIsDead)
+	if (InteractionTarget->CanPickupItem() == false)
 		return;
 
 	if (InteractionTarget->RightItemHand())
@@ -313,7 +333,7 @@ void AGunLockCharacter::ServerInteractWithItem_Implementation(AGunLockItem* Inte
 void AGunLockCharacter::DropItem(bool bRightHandItem)
 {
 	AGunLockItem* DropItem = bRightHandItem ? RightHandItem : LeftHandItem;
-	if (!DropItem || DropItem->bItemDropped)
+	if (!DropItem)
 		return;
 
 	//Play client side efffect
@@ -321,6 +341,14 @@ void AGunLockCharacter::DropItem(bool bRightHandItem)
 
 	//Tell the server to drop the item
 	ServerDropItem(bRightHandItem);
+
+	if (Role < ROLE_Authority)
+	{
+		if (bRightHandItem)
+			RightHandItem = NULL;
+		else
+			LeftHandItem = NULL;
+	}
 }
 
 bool AGunLockCharacter::ServerDropItem_Validate(bool bRightHandItem)
@@ -330,31 +358,104 @@ bool AGunLockCharacter::ServerDropItem_Validate(bool bRightHandItem)
 
 void AGunLockCharacter::ServerDropItem_Implementation(bool bRightHandItem)
 {
-	//TODO: Throw item on the ground, or spawn an effect or something?
+	AGunLockItem* DropItem = bRightHandItem ? RightHandItem : LeftHandItem;
+	DropItem->SetOwner(NULL);
+	DropItem->DetachRootComponentFromParent();
+
 	if (bRightHandItem)
-	{
-		RightHandItem->Destroy();
 		RightHandItem = NULL;
+	else
+		LeftHandItem = NULL;
+
+	if (DropItem->ShouldDestroyOnDrop())
+	{
+		DropItem->Destroy();
 	}
 	else
 	{
-		LeftHandItem->Destroy();
-		LeftHandItem = NULL;
+		FVector DropLocation = ActorToWorld().TransformPosition(bRightHandItem ? RightHandLocation : LeftHandLocation);
+		FHitResult Hit;
+		FCollisionQueryParams TraceParams(NAME_None, false, this);
+		GetWorld()->LineTraceSingle(Hit, DropLocation, DropLocation + FVector(0.f, 0.f, -128.f), ECC_WorldStatic, TraceParams);
+
+		AGunLockWeapon* DropWeapon = Cast<AGunLockWeapon>(DropItem);
+		FVector FloorLocation = Hit.Location + FVector(0.f, 0.f, (DropWeapon != NULL) ? 5.f : 0.f);
+		FRotator FloorRotation = GetActorRotation() + FRotator((DropWeapon != NULL) ? 90.f : 0.f, 0.f, 0.f);
+		DropItem->SetActorLocation(FloorLocation);
+		DropItem->SetActorRotation(FloorRotation);
 	}
 }
 
-void AGunLockCharacter::OnReloadButton()
+void AGunLockCharacter::OnReloadPressed()
 {
-	AGunLockWeapon* CurrentWeapon = Cast<AGunLockWeapon>(RightHandItem);
-	if (CurrentWeapon)
+	PressedReloadTime = FPlatformTime::Seconds();
+}
+
+void AGunLockCharacter::OnReloadReleased()
+{
+	if (bReachingForHolster)
+		return;
+
+	if (PressedReloadTime != 0.f)
 	{
-		CurrentWeapon->OnReload();
+		AGunLockWeapon* CurrentWeapon = Cast<AGunLockWeapon>(RightHandItem);
+		if (CurrentWeapon)
+		{
+			CurrentWeapon->OnReload();
+		}
 	}
+	PressedReloadTime = 0.f;
 }
 
-void AGunLockCharacter::OnHolster()
+void AGunLockCharacter::OnHolsterPressed()
 {
+	PressedHolsterTime = FPlatformTime::Seconds();
+}
 
+void AGunLockCharacter::OnHolsterReleased()
+{
+	if (bIsRunning)
+		return;
+
+	if (PressedHolsterTime != 0.f)
+	{
+		if ((RightHandItem && !HolsteredItem) || (HolsteredItem && !RightHandItem))
+		{
+			bReachingForHolster = true;
+		}
+	}
+	PressedHolsterTime = 0.f;
+}
+
+void AGunLockCharacter::HolsterItem()
+{
+	bReachingForHolster = false;
+
+	//Tell the server to drop the item
+	ServerHolsterItem(HolsteredItem != NULL);
+}
+
+bool AGunLockCharacter::ServerHolsterItem_Validate(bool Unholstering)
+{
+	return true;
+}
+
+void AGunLockCharacter::ServerHolsterItem_Implementation(bool Unholstering)
+{
+	if (Unholstering)
+	{
+		check(HolsteredItem && RightHandItem == NULL);
+		HolsteredItem->ItemPickedup(this);
+		RightHandItem = HolsteredItem;
+		HolsteredItem = NULL;
+	}
+	else
+	{
+		check(RightHandItem && HolsteredItem == NULL);
+		HolsteredItem = RightHandItem;
+		HolsteredItem->AttachRootComponentTo(Mesh, TEXT("Holster"), EAttachLocation::SnapToTarget);
+		RightHandItem = NULL;
+	}
 }
 
 void AGunLockCharacter::OnPullSlidePressed()
@@ -516,6 +617,7 @@ void AGunLockCharacter::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > &
 	DOREPLIFETIME(AGunLockCharacter, bIsDead);
 	DOREPLIFETIME(AGunLockCharacter, LeftHandItem);
 	DOREPLIFETIME(AGunLockCharacter, RightHandItem);
+	DOREPLIFETIME(AGunLockCharacter, HolsteredItem);
 }
 
 void AGunLockCharacter::FindInteractionTargets(FVector& WorldViewLocation, FRotator& WorldViewRotation)
@@ -530,8 +632,7 @@ void AGunLockCharacter::FindInteractionTargets(FVector& WorldViewLocation, FRota
 	for (TObjectIterator<AGunLockItem> It; It; ++It)
 	{
 		AGunLockItem* TestItem = *It;
-		AGunLockCharacter* ItemOwner = Cast<AGunLockCharacter>(TestItem->GetOwner());
-		if (ItemOwner && !ItemOwner->bIsDead)
+		if (!TestItem || TestItem->CanPickupItem() == false)
 			continue;
 
 		//Don't allow picking up an item if we've got something in that hand
@@ -592,6 +693,14 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	//Update the player color (one time only)
+	if (PlayerState && BodyMaterial)
+	{
+		uint32 SkinId = PlayerState->PlayerId % 4;
+		BodyMaterial->SetVectorParameterValue(TEXT("JacketColor"), GetPlayerColor(SkinId));
+		BodyMaterial = NULL;
+	}
+
 	AGunLockWeapon* CurrentWeapon = Cast<AGunLockWeapon>(RightHandItem);
 
 	//Only allow the server to tick, or the local player controller to tick
@@ -605,6 +714,9 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 
 		//Update the aiming animation alpha
 		AimingAlpha = FMath::Clamp(AimingAlpha + 4.f * ((bIsAiming && !bIsRunning) ? DeltaSeconds : -DeltaSeconds), 0.f, 1.f);
+
+		//Update the panting alpha if we've been running
+		PantingAlpha = FMath::Clamp(PantingAlpha + (bIsRunning ? DeltaSeconds * 0.1f : -DeltaSeconds * 0.2f), 0.f, 1.f);
 
 		//Update the crouching alpha
 		UCharacterMovementComponent* MovementComponent = Cast<UCharacterMovementComponent>(GetMovementComponent());
@@ -681,6 +793,15 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 				NewLeftHandPose = LeftHand_Surrender;
 			if (NewRightHandPose == RightHand_Idle && bRightTrigger)
 				NewRightHandPose = RightHand_Surrender;
+
+			if (PressedReloadTime != 0.f && FPlatformTime::Seconds() - PressedReloadTime > 1.0f && LeftHandItem)
+			{
+				NewLeftHandPose = LeftHand_Drop;
+			}
+			if (PressedHolsterTime != 0.f && FPlatformTime::Seconds() - PressedHolsterTime > 1.0f && RightHandItem)
+			{
+				NewRightHandPose = RightHand_Drop;
+			}
 		}
 
 		//Default to idle pose, allow logic/states to override
@@ -702,6 +823,13 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			FVector ObjectDirection = ToObject.SafeNormal();
 			RightHandTargetLocation = ActorToWorld().InverseTransformPosition(WorldViewLocation + ObjectDirection * FMath::Min(ToObject.Size() - 16.f, 64.f) );
 			RightHandTargetRotation = ObjectDirection.Rotation() + FRotator(45.f, 0.f, -90.f) - ActorToWorld().Rotator();
+		}
+		else if (NewRightHandPose == RightHand_Drop)
+		{
+			static FVector RightHandMagazineLocation = FVector(28.f, 12.f, -16.f);
+			static FRotator RightHandMagazineRotation = FRotator(0.f, 0.f, 0.f);
+			RightHandTargetLocation = RightHandMagazineLocation + CrouchZOffset;
+			RightHandTargetRotation = RightHandMagazineRotation;
 		}
 		else if (NewRightHandPose == RightHand_Surrender)
 		{
@@ -732,29 +860,49 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			RightHandTargetRotation = RightHandSlideRotation;
 		}
 
-		if (bIsAiming && !bIsRunning)
+		if (bReachingForHolster)
+		{
+			static FVector HolsterLocationOffset = FVector(0.f, 0.f, 0.f);
+			static FRotator HolsterRotation = FRotator(-90.f, 0.f, 0.f);
+
+			FTransform HolsterTransform = Mesh->GetSocketTransform(TEXT("Holster"), RTS_Actor);
+			RightHandTargetLocation = HolsterTransform.GetLocation() + HolsterLocationOffset;
+			RightHandTargetRotation = HolsterRotation;
+		}
+		else if (bIsAiming && CurrentWeapon && NewRightHandPose != RightHand_Drop)
 		{
 			//Note: The CalculateStereoViewOffset applies HMD position as well, so we need to get the original camera position here
 			FRotator CameraViewRotation;
 			FVector WorldRightHandLocation;
 			GetController()->GetPlayerViewPoint(WorldRightHandLocation, CameraViewRotation);
+
+			//If we've been running, make the aim move up/down on a sin wave
+			CameraViewRotation = WorldViewRotation + FRotator(1.5f * PantingAlpha * FMath::Sin(GWorld->GetTimeSeconds() * 6.f), 0.f, 0.f);
+
 			//Position the gun 32 cm in front of the player's eye and account for the socket's offset from the bone
-			WorldRightHandLocation += WorldViewRotation.Quaternion().RotateVector(GunOffset);
+			WorldRightHandLocation += CameraViewRotation.Quaternion().RotateVector(GunOffset);
 
 			//If we've got head tracking, offset the gun to be infront of the player's right eye. TODO: Make the eye configurable?
 			if (GEngine->IsStereoscopic3D())
-				GEngine->StereoRenderingDevice->CalculateStereoViewOffset(bAimEyeRight ? eSSP_RIGHT_EYE : eSSP_LEFT_EYE, WorldViewRotation, GetWorld()->GetWorldSettings()->WorldToMeters, WorldRightHandLocation);
+				GEngine->StereoRenderingDevice->CalculateStereoViewOffset(bAimEyeRight ? eSSP_RIGHT_EYE : eSSP_LEFT_EYE, CameraViewRotation, GetWorld()->GetWorldSettings()->WorldToMeters, WorldRightHandLocation);
 
 			//Copy the position values into the replicated variables (to be sent to other players)
-			RightHandTargetLocation = ActorToWorld().InverseTransformPosition(WorldRightHandLocation);
-			RightHandTargetRotation = NewHeadRotation;
+			FVector AimingLocation = ActorToWorld().InverseTransformPosition(WorldRightHandLocation);
+			FRotator AimingRotation = NewHeadRotation;
+			AimingRotation.Normalize();
 
 			//Add in kickback from shooting (todo; kickback in other states?)
-			RightHandTargetLocation += CurrentWeapon->KickbackAlpha * -8.f * RightHandTargetRotation.Vector();
-			RightHandTargetRotation += CurrentWeapon->KickbackAlpha * FRotator(30.f, 0.f, 0.f);
+			AimingLocation += CurrentWeapon->KickbackAlpha * -8.f * AimingRotation.Vector();
+			AimingRotation += CurrentWeapon->KickbackAlpha * FRotator(30.f, 0.f, 0.f);
 
-			MaxRightHandVelocity = 180.f;
-			MaxLeftHandVelocity = 180.f;
+			RightHandTargetLocation = FMath::Lerp(RightHandTargetLocation, AimingLocation, AimingAlpha);
+			RightHandTargetRotation = FMath::Lerp(RightHandTargetRotation, AimingRotation, AimingAlpha);
+
+			if (AimingAlpha == 1.0f)
+			{
+				MaxRightHandVelocity = 180.f;
+				MaxLeftHandVelocity = 180.f;
+			}
 		}
 
 		//Animate towards the target location
@@ -828,7 +976,7 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 		else if (NewLeftHandPose == LeftHand_Magazine)
 		{
 			static FVector LeftHandMagazineLocation = FVector(28.f, -12.f, 32.f);
-			static FRotator LeftHandMagazineRotation = FRotator(0.f, 0.f, 15.f);
+			static FRotator LeftHandMagazineRotation = FRotator(0.f, 0.f, 45.f);
 			LeftHandTargetLocation = LeftHandMagazineLocation + CrouchZOffset;
 			LeftHandTargetRotation = LeftHandMagazineRotation;
 		}
@@ -855,7 +1003,18 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 
 		if (bLeftHandInPosition && LeftHandPose == LeftHand_Drop)
 		{
+			PressedReloadTime = 0.f;
 			DropItem(false);
+		}
+		if (bRightHandInPosition && RightHandPose == RightHand_Drop)
+		{
+			PressedHolsterTime = 0.f;
+			DropItem(true);
+		}
+
+		if (bRightHandInPosition && bReachingForHolster)
+		{
+			HolsterItem();
 		}
 	}
 }

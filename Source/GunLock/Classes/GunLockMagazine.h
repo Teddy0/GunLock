@@ -25,6 +25,9 @@ class AGunLockMagazine : public AGunLockItem
 	virtual void BeginPlay() override;
 	virtual void GetHandStates(int32& RightHandState, int32& LeftHandState);
 	virtual void ItemPickedup(AGunLockCharacter* NewOwner);
+	virtual bool CanPickupItem();
+	virtual void DropItem();
+	virtual bool ShouldDestroyOnDrop() { return Rounds == 0; }
 
 	void AttachToGun(class AGunLockWeapon* NewWeapon);
 

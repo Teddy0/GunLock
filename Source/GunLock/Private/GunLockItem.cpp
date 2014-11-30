@@ -5,7 +5,6 @@
 
 AGunLockItem::AGunLockItem(const class FPostConstructInitializeProperties& PCIP)
 	: Super(PCIP)
-	, bItemDropped(false)
 {
 	TSubobjectPtr<USceneComponent> SceneComponent = PCIP.CreateDefaultSubobject<USceneComponent>(this, TEXT("SceneComp"));
 	RootComponent = SceneComponent;
@@ -18,15 +17,17 @@ AGunLockItem::AGunLockItem(const class FPostConstructInitializeProperties& PCIP)
 void AGunLockItem::ItemPickedup(AGunLockCharacter* NewOwner)
 {
 	AGunLockCharacter* OldOwner = Cast<AGunLockCharacter>(GetOwner());
-	if (OldOwner == NewOwner)
-		OldOwner = NULL;
-	check(OldOwner == NULL || OldOwner->bIsDead);
-
-	//Take it from their cold, dead hands
-	if (OldOwner && OldOwner->LeftHandItem == this)
-		OldOwner->LeftHandItem = NULL;
-	else if (OldOwner && OldOwner->RightHandItem == this)
-		OldOwner->RightHandItem = NULL;
+	if (OldOwner && OldOwner != NewOwner)
+	{
+		//Take it from their cold, dead hands
+		check(OldOwner->bIsDead);
+		if (OldOwner->LeftHandItem == this)
+			OldOwner->LeftHandItem = NULL;
+		else if (OldOwner->RightHandItem == this)
+			OldOwner->RightHandItem = NULL;
+		else if (OldOwner->HolsteredItem == this)
+			OldOwner->HolsteredItem = NULL;
+	}
 
 	SetOwner(NewOwner);
 
@@ -47,13 +48,18 @@ void AGunLockItem::ItemPickedup(AGunLockCharacter* NewOwner)
 	}
 }
 
+bool AGunLockItem::CanPickupItem()
+{
+	AActor* Owner = GetOwner();
+	AGunLockCharacter* PlayerOwner = Cast<AGunLockCharacter>(Owner);
+	return Owner == NULL || (PlayerOwner && PlayerOwner->bIsDead);
+}
+
 void AGunLockItem::DropItem()
 {
-	bItemDropped = true;
+}
 
-	//Client side code for dropping an item
-	if (DropItemEffect)
-	{
-		UGameplayStatics::SpawnEmitterAtLocation(this, DropItemEffect, GetActorLocation(), GetActorRotation());
-	}
+void AGunLockItem::NetMulticast_PlaySound_Implementation(USoundCue* Sound, bool bFollow)
+{
+	UGameplayStatics::PlaySound(this, Sound, RootComponent, NAME_None, bFollow, 1.0f, 1.0f);
 }

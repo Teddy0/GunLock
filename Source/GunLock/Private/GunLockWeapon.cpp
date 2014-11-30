@@ -23,9 +23,13 @@ void AGunLockWeapon::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & Ou
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(AGunLockWeapon, ShotNotify, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(AGunLockWeapon, AttachedMagazine, COND_SkipOwner);
 	DOREPLIFETIME_CONDITION(AGunLockWeapon, AnimHammerAlpha, COND_SkipOwner);
 	DOREPLIFETIME_CONDITION(AGunLockWeapon, AnimSlideAlpha, COND_SkipOwner);
 	DOREPLIFETIME_CONDITION(AGunLockWeapon, AnimMagazineAlpha, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(AGunLockWeapon, RoundChambered, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(AGunLockWeapon, SlideLocked, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(AGunLockWeapon, SlidePulled, COND_SkipOwner);
 }
 
 void AGunLockWeapon::Tick(float DeltaSeconds)
@@ -39,24 +43,18 @@ void AGunLockWeapon::Tick(float DeltaSeconds)
 	if (bIsControlledLocally)
 	{
 		KickbackAlpha = FMath::Clamp(KickbackAlpha - DeltaSeconds * 3.5f, 0.0f, 3.0f);
+		SetSlidePulled(WantSlidePull && PlayerOwner && PlayerOwner->bLeftHandInPosition);
 	}
 
-	if (Role == ROLE_Authority || bIsControlledLocally)
+	if (bIsControlledLocally || Role == ROLE_Authority)
 	{
 		//Animate slide
-		if (SlidePulled && PlayerOwner && PlayerOwner->bLeftHandInPosition)
+		if (SlidePulled)
 		{
 			AnimSlideAlpha = FMath::Clamp(AnimSlideAlpha + DeltaSeconds * 8.0f, 0.0f, 1.0f);
 
 			if (AnimSlideAlpha == 1.0f)
 			{
-				//If the slide has been opened with a round in the chamber, eject it!
-				if (RoundChambered)
-				{
-					RoundChambered = false;
-					//TODO: Spawn a bullet and throw it on the ground!
-				}
-
 				if (!AttachedMagazine || AttachedMagazine->Rounds == 0)
 				{
 					SlideLocked = true;
@@ -68,7 +66,7 @@ void AGunLockWeapon::Tick(float DeltaSeconds)
 			AnimSlideAlpha = FMath::Clamp(AnimSlideAlpha - DeltaSeconds * 24.0f, 0.0f, 1.0f);
 
 			//If the slide has returned and we have another round, chamber it
-			if (AnimSlideAlpha == 0.f && AttachedMagazine && AttachedMagazine->Rounds > 0)
+			if (AnimSlideAlpha == 0.f && AttachedMagazine && AttachedMagazine->Rounds > 0 && !RoundChambered)
 			{
 				AttachedMagazine->Rounds--;
 				AttachedMagazine->UpdateBulletMaterials();
@@ -80,11 +78,11 @@ void AGunLockWeapon::Tick(float DeltaSeconds)
 		if (MagazineEjecting)
 		{
 			//Only start ejecting the magazine once the left hand has moved it to the starting position
-			if (AnimMagazineAlpha != 0.0f || (PlayerOwner->LeftHandPose == LeftHand_InsertMagazine && PlayerOwner->bLeftHandInPosition))
+			if (AnimMagazineAlpha != 0.0f || (PlayerOwner->LeftHandPose == LeftHand_InsertMagazine /*&& PlayerOwner->bLeftHandInPosition*/))
 			{
 				//Play the magazine out effect
-				if (AnimMagazineAlpha == 0.f)
-					UGameplayStatics::PlaySound(this, MagazineOutSound, GunMesh, TEXT("Magazine"), false, 1.0f, 1.0f);
+				if (Role == ROLE_Authority && AnimMagazineAlpha == 0.f)
+					NetMulticast_PlaySound(MagazineOutSound, true);
 
 				AnimMagazineAlpha = FMath::Clamp(AnimMagazineAlpha + DeltaSeconds * 4.0f, 0.0f, 1.0f);
 			}
@@ -99,28 +97,59 @@ void AGunLockWeapon::Tick(float DeltaSeconds)
 		else if (MagazineInserting)
 		{
 			//Only start inserting the magazine once the left hand has moved it to the starting position
-			if (AnimMagazineAlpha != 1.0f || (PlayerOwner->LeftHandPose == LeftHand_InsertMagazine && PlayerOwner->bLeftHandInPosition))
+			if (AnimMagazineAlpha != 1.0f || (PlayerOwner->LeftHandPose == LeftHand_InsertMagazine /*&& PlayerOwner->bLeftHandInPosition*/))
 			{
-				//Play the magazine out effect
+				//Play the magazine in effect
 				if (AnimMagazineAlpha == 1.f)
-					UGameplayStatics::PlaySound(this, MagazineInSound, GunMesh, TEXT("Magazine"), false, 1.0f, 1.0f);
+				{
+					if( Role == ROLE_Authority )
+						NetMulticast_PlaySound(MagazineInSound, true);
+					AttachedMagazine->AttachToGun(this);
+					PlayerOwner->LeftHandItem = NULL;
+				}
 
 				AnimMagazineAlpha = FMath::Clamp(AnimMagazineAlpha - DeltaSeconds * 4.0f, 0.0f, 1.0f);
 			}
 
 			if (AnimMagazineAlpha == 0.f)
 			{
-				AttachedMagazine->AttachToGun(this);
-				PlayerOwner->LeftHandItem = NULL;
 				MagazineInserting = false;
 			}
 		}
 	}
 }
 
+bool AGunLockWeapon::ServerSetSlidePulled_Validate(bool bInSlidePulled)
+{
+	return true;
+}
+
+void AGunLockWeapon::ServerSetSlidePulled_Implementation(bool bInSlidePulled)
+{
+	SetSlidePulled(bInSlidePulled);
+}
+
+void AGunLockWeapon::SetSlidePulled(bool bInSlidePulled)
+{
+	if (SlidePulled != bInSlidePulled)
+	{
+		//Send the value to the server to replicate
+		if (Role < ROLE_Authority)
+			ServerSetSlidePulled(bInSlidePulled);
+
+		//Play the sound to clients
+		if (Role == ROLE_Authority && !bInSlidePulled && AnimSlideAlpha == 1.0f)
+		{
+			NetMulticast_PlaySound(SlideReleaseSound, true);
+		}
+
+		SlidePulled = bInSlidePulled;
+	}
+}
+
 void AGunLockWeapon::GetHandStates(int32& RightHandState, int32& LeftHandState)
 {
-	if (SlidePulled)
+	if (WantSlidePull)
 	{
 		RightHandState = RightHand_M9_Slide;
 		LeftHandState = LeftHand_M9_Slide;
@@ -155,6 +184,10 @@ void AGunLockWeapon::ServerOnReload_Implementation()
 
 void AGunLockWeapon::OnReload()
 {
+	//If we're already ejecting/inserting, wait for the anim to finish
+	if (MagazineEjecting || MagazineInserting)
+		return;
+
 	if (Role != ROLE_Authority)
 	{
 		//Tell the server to run this function
@@ -198,13 +231,6 @@ void AGunLockWeapon::ItemPickedup(AGunLockCharacter* NewOwner)
 	}
 
 	Super::ItemPickedup(NewOwner);
-
-	//If this weapon already has a magazine, and they have one in hand, destroy it.
-	if (NewOwner->LeftHandItem != NULL && AttachedMagazine != NULL)
-	{
-		NewOwner->LeftHandItem->Destroy();
-		NewOwner->LeftHandItem = NULL;
-	}
 }
 
 void AGunLockWeapon::TriggerPulled()
@@ -264,8 +290,14 @@ FHitResult AGunLockWeapon::UpdateShotNotify(FVector MuzzleLocation, FVector Muzz
 			ShotNotify.SurfaceType = (int32)Hit.PhysMaterial->SurfaceType;
 
 		//Play blood impact fx
-		if (Hit.GetActor() && Hit.GetActor()->IsA(AGunLockCharacter::StaticClass()))
-			ShotNotify.SurfaceType = 5;
+		AGunLockCharacter* Victim = Cast<AGunLockCharacter>(Hit.GetActor());
+		if (Victim)
+		{
+			if (Victim->bIsDead)
+				ShotNotify.SurfaceType = 6;
+			else
+				ShotNotify.SurfaceType = 5;
+		}
 	}
 	else
 	{
@@ -313,6 +345,11 @@ void AGunLockWeapon::OnRep_ShotNotify()
 			ImpactSound = FleshImpactSound;
 			ImpactParticle = FleshImpactEffect;
 		}
+		else if (ShotNotify.SurfaceType == SurfaceType6)
+		{
+			ImpactSound = NULL;
+			ImpactParticle = FleshImpactEffect;
+		}
 
 		//Play the bullet impact sound effect
 		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, ShotNotify.HitLocation, 1.f, 1.f, 0.f, NULL);
@@ -334,15 +371,23 @@ void AGunLockWeapon::OnRep_ShotNotify()
 
 void AGunLockWeapon::OnSlidePulled()
 {
-	SlidePulled = true;
+	WantSlidePull = true;
 	SlideLocked = false;
 }
 
 void AGunLockWeapon::OnSlideReleased()
 {
-	SlidePulled = false;
+	WantSlidePull = false;
+}
 
-	//Play the slide release sound
-	if (AnimSlideAlpha == 1.f)
-		UGameplayStatics::PlaySound(this, SlideReleaseSound, GunMesh, TEXT("Slide"), false, 1.0f, 1.0f);
+void AGunLockWeapon::Destroyed()
+{
+	Super::Destroyed();
+
+	//Destroy attached magazine
+	if (AttachedMagazine)
+	{
+		AttachedMagazine->Destroy();
+		AttachedMagazine = NULL;
+	}
 }

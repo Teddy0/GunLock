@@ -11,7 +11,7 @@ AGunLockMagazine::AGunLockMagazine(const class FPostConstructInitializePropertie
 	MagazineMesh->bGenerateOverlapEvents = false;
 	MagazineMesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 
-	MaxRounds = 15;
+	MaxRounds = 10;
 	Rounds = 0;
 }
 
@@ -19,7 +19,7 @@ void AGunLockMagazine::BeginPlay()
 {
 	Super::BeginPlay();
 
-	Rounds = FMath::RandRange(4, MaxRounds);
+	Rounds = FMath::RandRange(3, MaxRounds);
 
 	BulletMaterials.Empty(5);
 	for (int32 i = 1; i < 6; i++)
@@ -51,6 +51,11 @@ void AGunLockMagazine::GetHandStates(int32& RightHandState, int32& LeftHandState
 	}
 }
 
+bool AGunLockMagazine::CanPickupItem()
+{
+	return Super::CanPickupItem() && Rounds != 0;
+}
+
 void AGunLockMagazine::ItemPickedup(AGunLockCharacter* NewOwner)
 {
 	if (SpawnPoint)
@@ -65,8 +70,20 @@ void AGunLockMagazine::ItemPickedup(AGunLockCharacter* NewOwner)
 	Super::ItemPickedup(NewOwner);
 }
 
+void AGunLockMagazine::DropItem()
+{
+	Super::DropItem();
+
+	//Client side code for dropping an item
+	if (Rounds == 0 && DropItemEffect)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(this, DropItemEffect, GetActorLocation(), GetActorRotation());
+	}
+}
+
 void AGunLockMagazine::AttachToGun(AGunLockWeapon* NewWeapon)
 {
+	SetOwner(NewWeapon);
 	AttachRootComponentTo(NewWeapon->GunMesh, TEXT("Magazine"), EAttachLocation::SnapToTarget);
 }
 

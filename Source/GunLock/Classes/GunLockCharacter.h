@@ -9,6 +9,9 @@ class AGunLockCharacter : public ACharacter
 	GENERATED_UCLASS_BODY()
 
 	UPROPERTY()
+	class UMaterialInstanceDynamic* BodyMaterial;
+
+	UPROPERTY()
 	class UMaterialInstanceDynamic* SkinMaterial;
 
 	virtual void PostInitializeComponents() override;
@@ -36,6 +39,9 @@ class AGunLockCharacter : public ACharacter
 	UFUNCTION(reliable, server, WithValidation)
 	void ServerSetIsRunning(bool bSetIsRunning);
 
+	UPROPERTY()
+	bool bHasSpawnedGunForPlayer;
+
 	/** Which pose the right hand is currently in */
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = Animation)
 	int32 RightHandPose;
@@ -49,6 +55,12 @@ class AGunLockCharacter : public ACharacter
 
 	UPROPERTY(Replicated)
 	class AGunLockItem* RightHandItem;
+
+	UPROPERTY(Replicated)
+	class AGunLockItem* HolsteredItem;
+
+	UPROPERTY()
+	bool bReachingForHolster;
 
 	/** The current item within interaction range */
 	UPROPERTY()
@@ -69,6 +81,10 @@ class AGunLockCharacter : public ACharacter
 	/** Interpolate between aiming pose/animatinos */
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = Animation)
 	float AimingAlpha;
+
+	/** When we're running, we start panting which effects aiming */
+	UPROPERTY()
+	float PantingAlpha;
 
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = Animation)
 	float CrouchingAlpha;
@@ -145,6 +161,10 @@ protected:
 	void ServerDropItem(bool bRightHandItem);
 	void DropItem(bool bRightHandItem);
 
+	UFUNCTION(reliable, server, WithValidation)
+	void ServerHolsterItem(bool Unholstering);
+	void HolsterItem();
+
 	/** Flag to indicate player is holding down the aim button */
 	UPROPERTY()
 	bool bIsAiming;
@@ -156,8 +176,14 @@ protected:
 	bool bRightTrigger;
 
 	/** Flag indicates which eye to aim with */
-	UPROPERTY(config)
+	UPROPERTY(globalconfig)
 	bool bAimEyeRight;
+
+	/** Track reload/holster button presses */
+	UPROPERTY()
+	float PressedReloadTime;
+	UPROPERTY()
+	float PressedHolsterTime;
 
 	/** Handler for a touch input beginning. */
 	void TouchStarted(const ETouchIndex::Type FingerIndex, const FVector Location);
@@ -188,8 +214,10 @@ protected:
 	void OnStopAim();
 
 	void OnInteractButton();
-	void OnReloadButton();
-	void OnHolster();
+	void OnReloadPressed();
+	void OnReloadReleased();
+	void OnHolsterPressed();
+	void OnHolsterReleased();
 	void OnPullSlidePressed();
 	void OnPullSlideReleased();
 

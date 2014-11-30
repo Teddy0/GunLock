@@ -82,16 +82,22 @@ class AGunLockWeapon : public AGunLockItem
 	class UParticleSystem* FleshImpactEffect;
 
 	/* Ammo and magazine values */
-	UPROPERTY()
+	UPROPERTY(replicated)
 	class AGunLockMagazine* AttachedMagazine;
 
 	UPROPERTY()
+	bool WantSlidePull;
+
+	UPROPERTY(replicated)
 	bool RoundChambered;
 
-	UPROPERTY()
+	UPROPERTY(replicated)
 	bool SlideLocked;
 
-	UPROPERTY()
+	UFUNCTION(reliable, server, WithValidation)
+	void ServerSetSlidePulled(bool bInSlidePulled);
+	void SetSlidePulled(bool bInSlidePulled);
+	UPROPERTY(replicated)
 	bool SlidePulled;
 
 	UPROPERTY()
@@ -122,6 +128,7 @@ class AGunLockWeapon : public AGunLockItem
 
 public:
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void Destroyed() override;
 
 	struct FHitResult UpdateShotNotify(FVector MuzzleLocation, FVector MuzzleDirection);
 

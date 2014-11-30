@@ -7,7 +7,7 @@
 /**
 *
 */
-UCLASS()
+UCLASS(config = Game)
 class AGunLockPlayerController : public APlayerController
 {
 	GENERATED_UCLASS_BODY()
@@ -32,6 +32,9 @@ class AGunLockPlayerController : public APlayerController
 
 	UPROPERTY()
 	float CurrentYawInput;
+
+	UPROPERTY(globalconfig)
+	bool VRComfortMode;
 
 public:
 	virtual void SpawnPlayerCameraManager() override;

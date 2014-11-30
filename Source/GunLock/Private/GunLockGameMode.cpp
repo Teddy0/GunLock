@@ -117,36 +117,39 @@ void AGunLockGameMode::Tick(float DeltaSeconds)
 		}
 	}
 
-	FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator();
-	for (; SpawnedWeaponCount < LivingPlayers;)
+	for (FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator(); Iterator; ++Iterator)
 	{
-		if (EmptyItemSpawnPoints.Num() == 0 || WeaponBlueprints.Num() == 0)
+		if (EmptyItemSpawnPoints.Num() == 0 || WeaponBlueprints.Num() == 0 || SpawnedWeaponCount >= LivingPlayers)
 			break;
 
-		// Try to spawn the weapon near a player with no weapon
-		AGunLockItemSpawnPoint* ItemSpawnPoint = NULL;
-		for (; Iterator; ++Iterator)
+		APlayerController* PlayerController = *Iterator;
+		AGunLockCharacter* Pawn = Cast<AGunLockCharacter>(PlayerController->GetPawn());
+
+		//Spawn a weapon for each player, as close to them as possible
+		if (Pawn && !Pawn->bHasSpawnedGunForPlayer)
 		{
-			APlayerController* PlayerController = *Iterator;
-			AGunLockCharacter* Pawn = Cast<AGunLockCharacter>(PlayerController->GetPawn());
-			if (Pawn && Pawn->RightHandItem == NULL)
-			{
-				ItemSpawnPoint = GetClosestSpawnPoint(Pawn->GetActorLocation());
+			// Try to spawn the weapon near a player with no weapon
+			AGunLockItemSpawnPoint* ItemSpawnPoint = GetClosestSpawnPoint(Pawn->GetActorLocation());
+
+			// If we can't find one nearby, pick a random empty one
+			if (!ItemSpawnPoint)
+				ItemSpawnPoint = GetRandomSpawnPoint();
+
+			// If that fails, stop trying to spawn weapons
+			if (!ItemSpawnPoint)
 				break;
-			}
+
+			FVector SpawnLocation = ItemSpawnPoint->GetActorLocation() + FVector(FMath::FRandRange(-8.f, 8.f), FMath::FRandRange(-8.f, 8.f), 5.f);
+			FRotator SpawnRotation = ItemSpawnPoint->GetActorRotation() + FRotator(90.f, 0.f, 0.f);
+
+			//Spawn the item
+			int32 RandomWeapon = FMath::RandHelper(WeaponBlueprints.Num());
+			UBlueprint* SpawnBlueprint = WeaponBlueprints[RandomWeapon];
+			AGunLockItem* SpawnedItem = (AGunLockItem*)GetWorld()->SpawnActor(SpawnBlueprint->GeneratedClass, &SpawnLocation, &SpawnRotation);
+			SpawnedItem->SpawnPoint = ItemSpawnPoint;
+			SpawnedWeaponCount++;
+			Pawn->bHasSpawnedGunForPlayer = true;
 		}
-		if (!ItemSpawnPoint)
-			ItemSpawnPoint = GetRandomSpawnPoint();
-
-		FVector SpawnLocation = ItemSpawnPoint->GetActorLocation() + FVector(FMath::FRandRange(-8.f, 8.f), FMath::FRandRange(-8.f, 8.f), 5.f);
-		FRotator SpawnRotation = ItemSpawnPoint->GetActorRotation() + FRotator(90.f, 0.f, 0.f);
-
-		//Spawn the item
-		int32 RandomWeapon = FMath::RandHelper(WeaponBlueprints.Num());
-		UBlueprint* SpawnBlueprint = WeaponBlueprints[RandomWeapon];
-		AGunLockItem* SpawnedItem = (AGunLockItem*)GetWorld()->SpawnActor(SpawnBlueprint->GeneratedClass, &SpawnLocation, &SpawnRotation);
-		SpawnedItem->SpawnPoint = ItemSpawnPoint;
-		SpawnedWeaponCount++;
 	}
 
 	for (; SpawnedMagazineCount < LivingPlayers*3;)

@@ -9,6 +9,7 @@ class AGunLockItem : public AActor
 	GENERATED_UCLASS_BODY()
 
 	virtual bool RightItemHand() { return false; }
+	virtual bool CanPickupItem();
 
 	virtual void ItemPickedup(AGunLockCharacter* NewOwner);
 
@@ -16,15 +17,16 @@ class AGunLockItem : public AActor
 	{
 	}
 
+	UFUNCTION(NetMulticast, unreliable)
+	virtual void NetMulticast_PlaySound(class USoundCue* Sound, bool bFollow);
+
 	virtual void DropItem();
+	virtual bool ShouldDestroyOnDrop() { return false;  }
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Particles)
 	class UParticleSystem* DropItemEffect;
 
 	UPROPERTY()
 	AGunLockItemSpawnPoint* SpawnPoint;
-
-	UPROPERTY()
-	bool bItemDropped;
 };
 

@@ -26,7 +26,7 @@ void AGunLockPlayerController::SpawnPlayerCameraManager()
 
 void AGunLockPlayerController::AddYawInput(float Val)
 {
-	if (GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D() /*&& EnableVRComfortMode*/)
+	if (GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D() && VRComfortMode)
 	{
 		if (Val == 0.f)
 			return;
