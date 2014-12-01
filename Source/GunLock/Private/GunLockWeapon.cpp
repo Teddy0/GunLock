@@ -233,6 +233,25 @@ void AGunLockWeapon::ItemPickedup(AGunLockCharacter* NewOwner)
 	Super::ItemPickedup(NewOwner);
 }
 
+void AGunLockWeapon::NotifyOwnerDied()
+{
+	AGunLockCharacter* PlayerOwner = Cast<AGunLockCharacter>(GetOwner());
+	check(PlayerOwner);
+
+	SlidePulled = false;
+	if (MagazineInserting)
+	{
+		MagazineInserting = false;
+		AttachedMagazine = NULL;
+	}
+	if (MagazineEjecting)
+	{
+		PlayerOwner->LeftHandItem = NULL;
+		MagazineEjecting = false;
+	}
+	AnimMagazineAlpha = 0.f;
+}
+
 void AGunLockWeapon::TriggerPulled()
 {
 	if (RoundChambered)

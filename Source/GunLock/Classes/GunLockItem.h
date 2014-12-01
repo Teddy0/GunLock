@@ -12,6 +12,7 @@ class AGunLockItem : public AActor
 	virtual bool CanPickupItem();
 
 	virtual void ItemPickedup(AGunLockCharacter* NewOwner);
+	virtual void NotifyOwnerDied();
 
 	virtual void GetHandStates(int32& RightHandState, int32& LeftHandState)
 	{

@@ -196,6 +196,16 @@ void AGunLockCharacter::OnDeath()
 		GetWorldTimerManager().SetTimer(PlayerController, &APlayerController::ServerRestartPlayer, 10.f);
 	}
 
+	if (Role == ROLE_Authority)
+	{
+		if (LeftHandItem)
+			LeftHandItem->NotifyOwnerDied();
+		if (RightHandItem)
+			RightHandItem->NotifyOwnerDied();
+		if (HolsteredItem)
+			HolsteredItem->NotifyOwnerDied();
+	}
+
 	bReplicateMovement = false;
 	bTearOff = true;
 
@@ -444,17 +454,21 @@ void AGunLockCharacter::ServerHolsterItem_Implementation(bool Unholstering)
 {
 	if (Unholstering)
 	{
-		check(HolsteredItem && RightHandItem == NULL);
-		HolsteredItem->ItemPickedup(this);
-		RightHandItem = HolsteredItem;
-		HolsteredItem = NULL;
+		if (HolsteredItem && RightHandItem == NULL)
+		{
+			HolsteredItem->ItemPickedup(this);
+			RightHandItem = HolsteredItem;
+			HolsteredItem = NULL;
+		}
 	}
 	else
 	{
-		check(RightHandItem && HolsteredItem == NULL);
-		HolsteredItem = RightHandItem;
-		HolsteredItem->AttachRootComponentTo(Mesh, TEXT("Holster"), EAttachLocation::SnapToTarget);
-		RightHandItem = NULL;
+		if (RightHandItem && HolsteredItem == NULL)
+		{
+			HolsteredItem = RightHandItem;
+			HolsteredItem->AttachRootComponentTo(Mesh, TEXT("Holster"), EAttachLocation::SnapToTarget);
+			RightHandItem = NULL;
+		}
 	}
 }
 

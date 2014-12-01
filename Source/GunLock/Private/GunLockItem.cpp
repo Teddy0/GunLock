@@ -48,6 +48,10 @@ void AGunLockItem::ItemPickedup(AGunLockCharacter* NewOwner)
 	}
 }
 
+void AGunLockItem::NotifyOwnerDied()
+{
+}
+
 bool AGunLockItem::CanPickupItem()
 {
 	AActor* Owner = GetOwner();
