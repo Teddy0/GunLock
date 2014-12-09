@@ -28,11 +28,17 @@ class AGunLockGameMode : public AGameMode
 	UPROPERTY()
 	int32 SpawnedMagazineCount;
 
+	UPROPERTY()
+	int32 SpawnedAmmoCount;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=gameplay)
 	TArray<class UBlueprint*> WeaponBlueprints;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = gameplay)
 	TArray<class UBlueprint*> MagazineBlueprints;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = gameplay)
+	class UBlueprint* AmmoBlueprint;
 };
 
 

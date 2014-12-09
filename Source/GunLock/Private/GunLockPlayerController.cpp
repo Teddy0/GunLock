@@ -14,6 +14,13 @@ AGunLockPlayerController::AGunLockPlayerController(const class FPostConstructIni
 	DegreesPerSecond = 720.f;
 }
 
+void AGunLockPlayerController::BeginPlayingState()
+{
+	Super::BeginPlayingState();
+
+	GConfig->GetBool(TEXT("/Script/GunLock.GunLockPlayerController"), TEXT("VRComfortMode"), VRComfortMode, GGameIni);
+}
+
 void AGunLockPlayerController::SpawnPlayerCameraManager()
 {
 	Super::SpawnPlayerCameraManager();
@@ -137,4 +144,19 @@ void AGunLockPlayerController::Suicide()
 			MyPawn->Suicide();
 		}
 	}
+}
+
+FVector AGunLockPlayerController::GetHMDCameraLocation() const
+{
+	FVector WorldViewLocation;
+	FRotator WorldViewRotation;
+	GetPlayerViewPoint(WorldViewLocation, WorldViewRotation);
+
+	//Update with HMD offset
+	if (GEngine->HMDDevice.IsValid() && GEngine->IsStereoscopic3D())
+	{
+		GEngine->StereoRenderingDevice->CalculateStereoViewOffset(eSSP_LEFT_EYE, WorldViewRotation, GetWorld()->GetWorldSettings()->WorldToMeters, WorldViewLocation);
+	}
+
+	return WorldViewLocation;
 }

@@ -16,7 +16,11 @@ class AGunLockMagazine : public AGunLockItem
 	UPROPERTY(VisibleAnywhere, Category=General)
 	int32 MaxRounds;
 
-	UPROPERTY(Replicated, VisibleAnywhere, Category = General)
+	UFUNCTION(reliable, client)
+	void ClientUpdateRounds(int32 InRounds);
+	UFUNCTION()
+	void OnRep_RoundsUpdated();
+	UPROPERTY(Replicated, ReplicatedUsing = OnRep_RoundsUpdated)
 	int32 Rounds;
 
 	UPROPERTY()
@@ -27,7 +31,6 @@ class AGunLockMagazine : public AGunLockItem
 	virtual void ItemPickedup(AGunLockCharacter* NewOwner);
 	virtual bool CanPickupItem();
 	virtual void DropItem();
-	virtual bool ShouldDestroyOnDrop() { return Rounds == 0; }
 
 	void AttachToGun(class AGunLockWeapon* NewWeapon);
 

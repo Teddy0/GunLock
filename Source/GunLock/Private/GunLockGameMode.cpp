@@ -152,7 +152,7 @@ void AGunLockGameMode::Tick(float DeltaSeconds)
 		}
 	}
 
-	for (; SpawnedMagazineCount < LivingPlayers*3;)
+	for (; SpawnedMagazineCount < LivingPlayers;)
 	{
 		if (EmptyItemSpawnPoints.Num() == 0 || MagazineBlueprints.Num() == 0)
 			break;
@@ -167,5 +167,20 @@ void AGunLockGameMode::Tick(float DeltaSeconds)
 		AGunLockItem* SpawnedItem = (AGunLockItem*)GetWorld()->SpawnActor(SpawnBlueprint->GeneratedClass, &SpawnLocation, &SpawnRotation);
 		SpawnedItem->SpawnPoint = ItemSpawnPoint;
 		SpawnedMagazineCount++;
+	}
+
+	for (; SpawnedAmmoCount < LivingPlayers*4;)
+	{
+		if (EmptyItemSpawnPoints.Num() == 0 || AmmoBlueprint == NULL)
+			break;
+
+		AGunLockItemSpawnPoint* ItemSpawnPoint = GetRandomSpawnPoint();
+		FVector SpawnLocation = ItemSpawnPoint->GetActorLocation() + FVector(FMath::FRandRange(-8.f, 8.f), FMath::FRandRange(-8.f, 8.f), 1.f);
+		FRotator SpawnRotation = ItemSpawnPoint->GetActorRotation();
+
+		//Spawn the item
+		AGunLockItem* SpawnedItem = (AGunLockItem*)GetWorld()->SpawnActor(AmmoBlueprint->GeneratedClass, &SpawnLocation, &SpawnRotation);
+		SpawnedItem->SpawnPoint = ItemSpawnPoint;
+		SpawnedAmmoCount++;
 	}
 }

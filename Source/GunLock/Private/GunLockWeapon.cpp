@@ -18,6 +18,20 @@ AGunLockWeapon::AGunLockWeapon(const class FPostConstructInitializeProperties& P
 	SlideLocked = true;
 }
 
+void AGunLockWeapon::BeginPlay()
+{
+	Super::BeginPlay();
+
+	BulletMaterial = GunMesh->CreateAndSetMaterialInstanceDynamic(1);
+	UpdateBulletMaterial();
+}
+
+void AGunLockWeapon::ClientRoundChambered_Implementation()
+{
+	RoundChambered = true;
+	UpdateBulletMaterial();
+}
+
 void AGunLockWeapon::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -43,7 +57,7 @@ void AGunLockWeapon::Tick(float DeltaSeconds)
 	if (bIsControlledLocally)
 	{
 		KickbackAlpha = FMath::Clamp(KickbackAlpha - DeltaSeconds * 3.5f, 0.0f, 3.0f);
-		SetSlidePulled(WantSlidePull && PlayerOwner && PlayerOwner->bLeftHandInPosition);
+		SetSlidePulled(WantSlidePull && PlayerOwner && PlayerOwner->RightHandPose == RightHand_M9_Slide && PlayerOwner->bLeftHandInPosition);
 	}
 
 	if (bIsControlledLocally || Role == ROLE_Authority)
@@ -55,7 +69,7 @@ void AGunLockWeapon::Tick(float DeltaSeconds)
 
 			if (AnimSlideAlpha == 1.0f)
 			{
-				if (!AttachedMagazine || AttachedMagazine->Rounds == 0)
+				if (!RoundChambered && (!AttachedMagazine || AttachedMagazine->Rounds == 0))
 				{
 					SlideLocked = true;
 				}
@@ -69,8 +83,9 @@ void AGunLockWeapon::Tick(float DeltaSeconds)
 			if (AnimSlideAlpha == 0.f && AttachedMagazine && AttachedMagazine->Rounds > 0 && !RoundChambered)
 			{
 				AttachedMagazine->Rounds--;
-				AttachedMagazine->UpdateBulletMaterials();
 				RoundChambered = true;
+				AttachedMagazine->UpdateBulletMaterials();
+				UpdateBulletMaterial();
 			}
 		}
 
@@ -144,6 +159,8 @@ void AGunLockWeapon::SetSlidePulled(bool bInSlidePulled)
 		}
 
 		SlidePulled = bInSlidePulled;
+		if (SlidePulled)
+			SlideLocked = false;
 	}
 }
 
@@ -164,6 +181,11 @@ void AGunLockWeapon::GetHandStates(int32& RightHandState, int32& LeftHandState)
 		RightHandState = RightHand_M9_Empty;
 		if (AnimMagazineAlpha >= 0.5f)
 			LeftHandState = LeftHand_InsertMagazine;
+	}
+	else if (SlideLocked)
+	{
+		RightHandState = RightHand_M9_SlideLocked;
+		LeftHandState = LeftHand_M9_SlideLocked;
 	}
 	else
 	{
@@ -254,10 +276,11 @@ void AGunLockWeapon::NotifyOwnerDied()
 
 void AGunLockWeapon::TriggerPulled()
 {
-	if (RoundChambered)
+	if (RoundChambered && AnimSlideAlpha == 0.0f)
 	{
 		//BOOM! Fire a bullet
 		RoundChambered = false;
+		UpdateBulletMaterial();
 
 		FVector MuzzleLocation = GunMesh->GetSocketLocation(TEXT("Muzzle"));
 		FRotator MuzzleRotation = GunMesh->GetSocketRotation(TEXT("Muzzle"));
@@ -275,10 +298,18 @@ void AGunLockWeapon::TriggerPulled()
 bool AGunLockWeapon::ServerFireRound_Validate(FVector MuzzleLocation, FVector MuzzleDirection)
 {
 	//TODO: Check the MuzzleLocation is within an acceptable range
-	return true;
+	return RoundChambered || AttachedMagazine && AttachedMagazine->Rounds;
 }
 void AGunLockWeapon::ServerFireRound_Implementation(FVector MuzzleLocation, FVector MuzzleDirection)
 {
+	if (RoundChambered == false)
+	{
+		if (AttachedMagazine && AttachedMagazine->Rounds)
+			AttachedMagazine->Rounds--;
+		RoundChambered = true;
+	}
+	RoundChambered = false;
+
 	FHitResult Hit = UpdateShotNotify(MuzzleLocation, MuzzleDirection);
 
 	//Apply damage
@@ -292,6 +323,16 @@ void AGunLockWeapon::ServerFireRound_Implementation(FVector MuzzleLocation, FVec
 	if (GetNetMode() != NM_DedicatedServer)
 	{
 		OnRep_ShotNotify();
+	}
+	else
+	{
+		//Kick off the animations
+		AnimHammerAlpha = 1.0f;
+		AnimSlideAlpha = 1.0f;
+		KickbackAlpha += 1.0f;
+
+		//If there's no more bullets to feed in, activate the slide lock
+		SlideLocked = !(AttachedMagazine && AttachedMagazine->Rounds > 0);
 	}
 }
 
@@ -339,6 +380,11 @@ FHitResult AGunLockWeapon::UpdateShotNotify(FVector MuzzleLocation, FVector Muzz
 
 void AGunLockWeapon::OnRep_ShotNotify()
 {
+	//Don't play the effect if the owner just died, we joined the server late
+	AGunLockCharacter* PlayerOwner = Cast<AGunLockCharacter>(GetOwner());
+	if (!PlayerOwner || PlayerOwner->bIsDead)
+		return;
+
 	//Create an impact decal/effect!
 	if (ShotNotify.SurfaceType > -1)
 	{
@@ -391,7 +437,6 @@ void AGunLockWeapon::OnRep_ShotNotify()
 void AGunLockWeapon::OnSlidePulled()
 {
 	WantSlidePull = true;
-	SlideLocked = false;
 }
 
 void AGunLockWeapon::OnSlideReleased()
@@ -406,7 +451,16 @@ void AGunLockWeapon::Destroyed()
 	//Destroy attached magazine
 	if (AttachedMagazine)
 	{
+		AttachedMagazine->ItemDestroyedEvent();
 		AttachedMagazine->Destroy();
 		AttachedMagazine = NULL;
+	}
+}
+
+void AGunLockWeapon::UpdateBulletMaterial()
+{
+	if (BulletMaterial)
+	{
+		BulletMaterial->SetScalarParameterValue(TEXT("Visible"), RoundChambered ? 1.0f : 0.0f);
 	}
 }

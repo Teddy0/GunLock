@@ -3,6 +3,7 @@
 #include "Net/UnrealNetwork.h"
 #include "GunLockCharacter.h"
 #include "IHeadMountedDisplay.h"
+#include "Particles/ParticleSystemComponent.h"
 
 //////////////////////////////////////////////////////////////////////////
 // AGunLockCharacter
@@ -32,6 +33,37 @@ AGunLockCharacter::AGunLockCharacter(const class FPostConstructInitializePropert
 	FirstPersonCameraComponent = PCIP.CreateDefaultSubobject<UCameraComponent>(this, TEXT("FirstPersonCamera"));
 	FirstPersonCameraComponent->AttachParent = CapsuleComponent;
 	FirstPersonCameraComponent->RelativeLocation = FVector(10.f, 0, 75.5f); // Position the camera
+
+	// Override post process (for health effect)
+	FirstPersonCameraComponent->PostProcessBlendWeight = 1.f;
+	FirstPersonCameraComponent->PostProcessSettings.bOverride_FilmSaturation = 1;
+	FirstPersonCameraComponent->PostProcessSettings.FilmSaturation = 1.f;
+
+	// Create the blood particle components
+	BloodParticleComponents[Blood_Lungs] = PCIP.CreateDefaultSubobject<UParticleSystemComponent>(this, TEXT("BloodParticleLungs"));
+	BloodParticleComponents[Blood_Lungs]->AttachParent = Mesh;
+	BloodParticleComponents[Blood_Lungs]->AttachSocketName = TEXT("BloodLungs");
+	BloodParticleComponents[Blood_Lungs]->bAutoActivate = false;
+	BloodParticleComponents[Blood_Guts] = PCIP.CreateDefaultSubobject<UParticleSystemComponent>(this, TEXT("BloodParticleGuts"));
+	BloodParticleComponents[Blood_Guts]->AttachParent = Mesh;
+	BloodParticleComponents[Blood_Guts]->AttachSocketName = TEXT("BloodGuts");
+	BloodParticleComponents[Blood_Guts]->bAutoActivate = false;
+	BloodParticleComponents[Blood_RightArm] = PCIP.CreateDefaultSubobject<UParticleSystemComponent>(this, TEXT("BloodParticleRightArm"));
+	BloodParticleComponents[Blood_RightArm]->AttachParent = Mesh;
+	BloodParticleComponents[Blood_RightArm]->AttachSocketName = TEXT("BloodRightArm");
+	BloodParticleComponents[Blood_RightArm]->bAutoActivate = false;
+	BloodParticleComponents[Blood_LeftArm] = PCIP.CreateDefaultSubobject<UParticleSystemComponent>(this, TEXT("BloodParticleLeftArm"));
+	BloodParticleComponents[Blood_LeftArm]->AttachParent = Mesh;
+	BloodParticleComponents[Blood_LeftArm]->AttachSocketName = TEXT("BloodLeftArm");
+	BloodParticleComponents[Blood_LeftArm]->bAutoActivate = false;
+	BloodParticleComponents[Blood_RightLeg] = PCIP.CreateDefaultSubobject<UParticleSystemComponent>(this, TEXT("BloodParticleRightLeg"));
+	BloodParticleComponents[Blood_RightLeg]->AttachParent = Mesh;
+	BloodParticleComponents[Blood_RightLeg]->AttachSocketName = TEXT("BloodRightLeg");
+	BloodParticleComponents[Blood_RightLeg]->bAutoActivate = false;
+	BloodParticleComponents[Blood_LeftLeg] = PCIP.CreateDefaultSubobject<UParticleSystemComponent>(this, TEXT("BloodParticleLeftLeg"));
+	BloodParticleComponents[Blood_LeftLeg]->AttachParent = Mesh;
+	BloodParticleComponents[Blood_LeftLeg]->AttachSocketName = TEXT("BloodLeftLeg");
+	BloodParticleComponents[Blood_LeftLeg]->bAutoActivate = false;
 
 	// Setup hand poses
 	RightHandPose = RightHand_Idle;
@@ -73,16 +105,19 @@ void AGunLockCharacter::Destroyed()
 	//Destroy inventory
 	if (RightHandItem)
 	{
+		RightHandItem->ItemDestroyedEvent();
 		RightHandItem->Destroy();
 		RightHandItem = NULL;
 	}
 	if (LeftHandItem)
 	{
+		LeftHandItem->ItemDestroyedEvent();
 		LeftHandItem->Destroy();
 		LeftHandItem = NULL;
 	}
 	if (HolsteredItem)
 	{
+		HolsteredItem->ItemDestroyedEvent();
 		HolsteredItem->Destroy();
 		HolsteredItem = NULL;
 	}
@@ -132,6 +167,8 @@ void AGunLockCharacter::SetupPlayerInputComponent(class UInputComponent* InputCo
 	InputComponent->BindAction("ResetHMD", IE_Pressed, this, &AGunLockCharacter::OnHMDResetButton);
 	InputComponent->BindAction("AimEyeLeft", IE_Pressed, this, &AGunLockCharacter::OnAimEyeLeft);
 	InputComponent->BindAction("AimEyeRight", IE_Released, this, &AGunLockCharacter::OnAimEyeRight);
+	InputComponent->BindAction("PushToTalk", IE_Pressed, this, &AGunLockCharacter::OnPushToTalk);
+	InputComponent->BindAction("PushToTalk", IE_Released, this, &AGunLockCharacter::OnReleasePushToTalk);
 	InputComponent->BindAction("Menu", IE_Pressed, this, &AGunLockCharacter::OnMenuButton);
 	InputComponent->BindAction("Quit", IE_Pressed, this, &AGunLockCharacter::OnQuitButton);
 }
@@ -143,9 +180,66 @@ float AGunLockCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 		return 0.f;
 	}
 
-	const float ActualDamage = Super::TakeDamage(Damage, DamageEvent, EventInstigator, DamageCauser);
+	float ActualDamage = Super::TakeDamage(Damage, DamageEvent, EventInstigator, DamageCauser);
 	if (ActualDamage > 0.f)
 	{
+		FHitResult HitInfo;
+		FVector ImpulseDir;
+		DamageEvent.GetBestHitInfo(this, DamageCauser, HitInfo, ImpulseDir);
+		if (HitInfo.BoneName != NAME_None)
+		{
+			if (HitInfo.BoneName == TEXT("Head") || HitInfo.BoneName == TEXT("Neck"))
+			{
+				//Head/neck shot. Instant death!
+				ActualDamage *= 1.0f;
+				BleedingDamage += 100.f;
+			}
+			else if (HitInfo.BoneName == TEXT("Spine2"))
+			{
+				//Lungs shot. Death within 3 seconds
+				ActualDamage *= 0.5f;
+				BleedingDamage += 15.f;
+				BloodParticlesActiveMask |= (1 << Blood_Lungs);
+			}
+			else if (HitInfo.BoneName == TEXT("Spine") || HitInfo.BoneName == TEXT("Hips"))
+			{
+				//Gut shot. Death within 30 seconds
+				ActualDamage *= 0.25f;
+				BleedingDamage += 2.5f;
+				BloodParticlesActiveMask |= (1 << Blood_Guts);
+			}
+			else
+			{
+				//Limb shot. Death within 5 minutes
+				ActualDamage *= 0.15f;
+				BleedingDamage += 0.3f;
+				if (HitInfo.BoneName == TEXT("RightShoulder") || HitInfo.BoneName == TEXT("RightArm") || HitInfo.BoneName == TEXT("RightForeArm") || HitInfo.BoneName == TEXT("RightHand"))
+				{
+					BloodParticlesActiveMask |= (1 << Blood_RightArm);
+				}
+				else if (HitInfo.BoneName == TEXT("LeftShoulder") || HitInfo.BoneName == TEXT("LeftArm") || HitInfo.BoneName == TEXT("LeftForeArm") || HitInfo.BoneName == TEXT("LeftHand"))
+				{
+					BloodParticlesActiveMask |= (1 << Blood_LeftArm);
+				}
+				else if (HitInfo.BoneName == TEXT("RightUpLeg") || HitInfo.BoneName == TEXT("RightLeg") || HitInfo.BoneName == TEXT("RightFoot"))
+				{
+					BloodParticlesActiveMask |= (1 << Blood_RightLeg);
+				}
+				else if (HitInfo.BoneName == TEXT("LeftUpLeg") || HitInfo.BoneName == TEXT("LeftLeg") || HitInfo.BoneName == TEXT("LeftFoot"))
+				{
+					BloodParticlesActiveMask |= (1 << Blood_LeftLeg);
+				}
+				else
+				{
+					//WTF did you hit?
+				}
+			}
+
+			//If we're running a listen server, update our client too
+			if (!IsRunningDedicatedServer())
+				OnRep_BloodParticlesUpdated();
+		}
+
 		Health -= ActualDamage;
 		if (Health <= 0)
 		{
@@ -158,7 +252,7 @@ float AGunLockCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 			//Simple scoring. +1 for kill, -1 for death
 			if (PlayerState)
 				PlayerState->Score -= 1.0f;
-			if (EventInstigator && EventInstigator->PlayerState)
+			if (EventInstigator && EventInstigator != Controller && EventInstigator->PlayerState)
 				EventInstigator->PlayerState->Score += 1.0f;
 
 			bIsDead = true;
@@ -167,11 +261,29 @@ float AGunLockCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 		}
 		else
 		{
-			//PlayHit(ActualDamage, DamageEvent, EventInstigator ? EventInstigator->GetPawn() : NULL, DamageCauser);
+			LastDamageController = EventInstigator;
 		}
 	}
 
 	return ActualDamage;
+}
+
+void AGunLockCharacter::OnRep_BloodParticlesUpdated()
+{
+	for (uint32 i = 0; i < Blood_MAX; i++)
+	{
+		//If this particle is active, turn it on!
+		if ((BloodParticlesActiveMask & (1 << i)) != 0)
+		{
+			BloodParticleComponents[i]->ActivateSystem(false);
+		}
+	}
+
+	if (PainAudioComponent == NULL)
+	{
+		bool bPlayDieSound = (BloodParticlesActiveMask & (1 << Blood_Lungs)) != 0;
+		PainAudioComponent = UGameplayStatics::PlaySoundAttached(bPlayDieSound ? DieSound : PainSound, Mesh, TEXT("Mouth"), FVector::ZeroVector, EAttachLocation::SnapToTarget, true, 1.0f, 1.0f);
+	}
 }
 
 void AGunLockCharacter::OnRep_ClientOnDeath()
@@ -184,8 +296,11 @@ void AGunLockCharacter::OnDeath()
 	bool bIsControlledLocally = Controller && Controller->IsLocalPlayerController();
 	if (bIsControlledLocally)
 	{
-		//Play post process, etc
+		FirstPersonCameraComponent->PostProcessSettings.FilmSaturation = 0.f;
 	}
+
+	if (PainAudioComponent)
+		PainAudioComponent->Stop();
 
 	if (SkinMaterial)
 		SkinMaterial->SetScalarParameterValue(TEXT("HeadVisible"), 1.0f);
@@ -204,6 +319,15 @@ void AGunLockCharacter::OnDeath()
 			RightHandItem->NotifyOwnerDied();
 		if (HolsteredItem)
 			HolsteredItem->NotifyOwnerDied();
+	}
+	
+	if (Role != ROLE_Authority || !IsRunningDedicatedServer())
+	{
+		//Turn off all blood particles
+		for (uint32 i = 0; i < Blood_MAX; i++)
+		{
+			BloodParticleComponents[i]->DeactivateSystem();
+		}
 	}
 
 	bReplicateMovement = false;
@@ -315,17 +439,37 @@ void AGunLockCharacter::OnInteractButton()
 		return;
 
 	if (CurrentInteractionTarget)
+	{
 		ServerInteractWithItem(CurrentInteractionTarget);
+	}
+	else if (LeftHandItem && RightHandItem == NULL)
+	{
+		AGunLockMagazine* CurrentMagazine = Cast<AGunLockMagazine>(LeftHandItem);
+		if (CurrentMagazine && Ammo > 0 && CurrentMagazine->Rounds + 1 <= CurrentMagazine->MaxRounds)
+		{
+			//Load a single round into our magazine
+			ServerLoadAmmoToMagazine(true);
+		}
+	}
+	else if (LeftHandItem == NULL && RightHandItem)
+	{
+		AGunLockWeapon* CurrentWeapon = Cast<AGunLockWeapon>(RightHandItem);
+		if (CurrentWeapon && !CurrentWeapon->RoundChambered && CurrentWeapon->SlideLocked && Ammo > 0)
+		{
+			//Load a single round into the chamber (no clip!)
+			ServerLoadAmmoToWeapon(true);
+		}
+	}
 }
 
-bool AGunLockCharacter::ServerInteractWithItem_Validate(AGunLockItem* InteractionTarget)
-{
-	return true;
-}
-
+bool AGunLockCharacter::ServerInteractWithItem_Validate(AGunLockItem* InteractionTarget) { return true; }
 void AGunLockCharacter::ServerInteractWithItem_Implementation(AGunLockItem* InteractionTarget)
 {
-	if (!InteractionTarget || ((InteractionTarget->RightItemHand() && RightHandItem) || (!InteractionTarget->RightItemHand() && LeftHandItem)))
+	if (!InteractionTarget)
+		return;
+	
+	InteractionTarget->AllowRightHandPickup(LeftHandItem != NULL && RightHandItem == NULL);
+	if( (InteractionTarget->RightItemHand() && RightHandItem) || (!InteractionTarget->RightItemHand() && LeftHandItem) )
 		return;
 
 	if (InteractionTarget->CanPickupItem() == false)
@@ -338,6 +482,87 @@ void AGunLockCharacter::ServerInteractWithItem_Implementation(AGunLockItem* Inte
 
 	//Flag it as being ours
 	InteractionTarget->ItemPickedup(this);
+}
+
+bool AGunLockCharacter::ServerPocketAmmo_Validate() { return true; }
+void AGunLockCharacter::ServerPocketAmmo_Implementation()
+{
+	AGunLockAmmo* AmmoItem = Cast<AGunLockAmmo>(LeftHandItem);
+	if (AmmoItem)
+	{
+		AmmoItem->AmmoPickedup(this);
+		LeftHandItem = NULL;
+	}
+	else
+	{
+		AmmoItem = Cast<AGunLockAmmo>(RightHandItem);
+		if (AmmoItem)
+		{
+			AmmoItem->AmmoPickedup(this);
+			RightHandItem = NULL;
+		}
+	}
+}
+
+bool AGunLockCharacter::ServerLoadAmmoToMagazine_Validate(bool bPickupAmmo) { return true; }
+void AGunLockCharacter::ServerLoadAmmoToMagazine_Implementation(bool bPickupAmmo)
+{
+	UE_LOG(LogGunLock, Warning, TEXT("ServerLoadAmmoToMagazine: bPickupAmmo: %s"), bPickupAmmo ? TEXT("TRUE") : TEXT("FALSE"));
+
+	AGunLockMagazine* CurrentMagazine = Cast<AGunLockMagazine>(LeftHandItem);
+	if (!CurrentMagazine || Ammo <= 0 || CurrentMagazine->Rounds+1 > CurrentMagazine->MaxRounds)
+	{
+		bLoadingAmmoToMagazine = false;
+		return;
+	}
+
+	if (bPickupAmmo)
+	{
+		if (!bLoadingAmmoToMagazine)
+		{
+			UE_LOG(LogGunLock, Warning, TEXT("ServerLoadAmmoToMagazine: bPickupAmmo"));
+
+			bLoadingAmmoToMagazine = true;
+		}
+	}
+	else if (bLoadingAmmoToMagazine)
+	{
+		bLoadingAmmoToMagazine = false;
+		CurrentMagazine->Rounds++;
+		CurrentMagazine->ClientUpdateRounds(CurrentMagazine->Rounds);
+		CurrentMagazine->NetMulticast_PlaySound(LoadAmmoSound, true);
+		Ammo--;
+
+		UE_LOG(LogGunLock, Warning, TEXT("ServerLoadAmmoToMagazine: CurrentMagazine->Rounds: %i Ammo: %i"), CurrentMagazine->Rounds, Ammo);
+	}
+}
+
+bool AGunLockCharacter::ServerLoadAmmoToWeapon_Validate(bool bPickupAmmo) { return true; }
+void AGunLockCharacter::ServerLoadAmmoToWeapon_Implementation(bool bPickupAmmo)
+{
+	AGunLockWeapon* CurrentWeapon = Cast<AGunLockWeapon>(RightHandItem);
+	if (!CurrentWeapon || Ammo <= 0 || CurrentWeapon->RoundChambered)
+	{
+		bLoadingAmmoToMagazine = false;
+		return;
+	}
+
+	if (bPickupAmmo)
+	{
+		if (!bLoadingAmmoToWeapon)
+		{
+			bLoadingAmmoToWeapon = true;
+		}
+	}
+	else if (bLoadingAmmoToWeapon)
+	{
+		bLoadingAmmoToWeapon = false;
+		CurrentWeapon->RoundChambered = true;
+		CurrentWeapon->ClientRoundChambered();
+		Ammo--;
+
+		CurrentWeapon->NetMulticast_PlaySound(LoadAmmoSound, true);
+	}
 }
 
 void AGunLockCharacter::DropItem(bool bRightHandItem)
@@ -379,6 +604,7 @@ void AGunLockCharacter::ServerDropItem_Implementation(bool bRightHandItem)
 
 	if (DropItem->ShouldDestroyOnDrop())
 	{
+		DropItem->ItemDestroyedEvent();
 		DropItem->Destroy();
 	}
 	else
@@ -456,6 +682,10 @@ void AGunLockCharacter::ServerHolsterItem_Implementation(bool Unholstering)
 	{
 		if (HolsteredItem && RightHandItem == NULL)
 		{
+			AGunLockWeapon* HolsteredWeapon = Cast<AGunLockWeapon>(HolsteredItem);
+			if (HolsteredWeapon)
+				HolsteredWeapon->NetMulticast_PlaySound(HolsteredWeapon->HolsterSound, true);
+
 			HolsteredItem->ItemPickedup(this);
 			RightHandItem = HolsteredItem;
 			HolsteredItem = NULL;
@@ -465,6 +695,10 @@ void AGunLockCharacter::ServerHolsterItem_Implementation(bool Unholstering)
 	{
 		if (RightHandItem && HolsteredItem == NULL)
 		{
+			AGunLockWeapon* HolsteredWeapon = Cast<AGunLockWeapon>(RightHandItem);
+			if (HolsteredWeapon)
+				HolsteredWeapon->NetMulticast_PlaySound(HolsteredWeapon->HolsterSound, true);
+
 			HolsteredItem = RightHandItem;
 			HolsteredItem->AttachRootComponentTo(Mesh, TEXT("Holster"), EAttachLocation::SnapToTarget);
 			RightHandItem = NULL;
@@ -507,6 +741,24 @@ void AGunLockCharacter::OnAimEyeLeft()
 void AGunLockCharacter::OnAimEyeRight()
 {
 	bAimEyeRight = true;
+}
+
+void AGunLockCharacter::OnPushToTalk()
+{
+	APlayerController* PlayerController = Cast<APlayerController>(Controller);
+	if (PlayerController)
+	{
+		PlayerController->StartTalking();
+	}
+}
+
+void AGunLockCharacter::OnReleasePushToTalk()
+{
+	APlayerController* PlayerController = Cast<APlayerController>(Controller);
+	if (PlayerController)
+	{
+		PlayerController->StopTalking();
+	}
 }
 
 void AGunLockCharacter::OnMenuButton()
@@ -626,16 +878,29 @@ void AGunLockCharacter::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > &
 	DOREPLIFETIME_CONDITION(AGunLockCharacter, CrouchingAlpha, COND_SkipOwner);
 	DOREPLIFETIME_CONDITION(AGunLockCharacter, bIsRunning, COND_SkipOwner);
 
+	//Owner only
+	DOREPLIFETIME_CONDITION(AGunLockCharacter, bLoadingAmmoToMagazine, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(AGunLockCharacter, bLoadingAmmoToWeapon, COND_OwnerOnly);
+
 	//Only set on the server
 	DOREPLIFETIME(AGunLockCharacter, Health);
 	DOREPLIFETIME(AGunLockCharacter, bIsDead);
 	DOREPLIFETIME(AGunLockCharacter, LeftHandItem);
 	DOREPLIFETIME(AGunLockCharacter, RightHandItem);
 	DOREPLIFETIME(AGunLockCharacter, HolsteredItem);
+	DOREPLIFETIME(AGunLockCharacter, BloodParticlesActiveMask);
+	DOREPLIFETIME(AGunLockCharacter, Ammo);
 }
 
 void AGunLockCharacter::FindInteractionTargets(FVector& WorldViewLocation, FRotator& WorldViewRotation)
 {
+	//Can't do anything if hands are full
+	if (LeftHandItem && RightHandItem)
+	{
+		CurrentInteractionTarget = NULL;
+		return;
+	}
+
 	FVector WorldViewDirection = WorldViewRotation.Vector();
 
 	//Search for any pickup items in range
@@ -648,6 +913,8 @@ void AGunLockCharacter::FindInteractionTargets(FVector& WorldViewLocation, FRota
 		AGunLockItem* TestItem = *It;
 		if (!TestItem || TestItem->CanPickupItem() == false)
 			continue;
+
+		TestItem->AllowRightHandPickup(LeftHandItem != NULL && RightHandItem == NULL);
 
 		//Don't allow picking up an item if we've got something in that hand
 		if (TestItem->RightItemHand() == true && RightHandItem != NULL ||
@@ -703,6 +970,11 @@ void AGunLockCharacter::SetPlayerPoseInfo(float DeltaSeconds, FVector NewHeadLoc
 	}
 }
 
+void AGunLockCharacter::NetMulticast_PlaySound_Implementation(USoundCue* Sound, bool bFollow)
+{
+	UGameplayStatics::PlaySound(this, Sound, RootComponent, NAME_None, bFollow, 1.0f, 1.0f);
+}
+
 void AGunLockCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -713,6 +985,12 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 		uint32 SkinId = PlayerState->PlayerId % 4;
 		BodyMaterial->SetVectorParameterValue(TEXT("JacketColor"), GetPlayerColor(SkinId));
 		BodyMaterial = NULL;
+	}
+
+	if (Role == ROLE_Authority && BleedingDamage > 0.f )
+	{
+		//TODO: Set the damage causer as the last player to hit us?
+		UGameplayStatics::ApplyDamage(this, BleedingDamage * DeltaSeconds, LastDamageController, this, NULL);
 	}
 
 	AGunLockWeapon* CurrentWeapon = Cast<AGunLockWeapon>(RightHandItem);
@@ -742,6 +1020,9 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 
 	if (bIsControlledLocally)
 	{
+		//Update health post process
+		FirstPersonCameraComponent->PostProcessSettings.FilmSaturation = FMath::InterpEaseInOut(0.f, 1.f, Health/100.f, 1.5f);
+
 		if (SkinMaterial)
 			SkinMaterial->SetScalarParameterValue(TEXT("HeadVisible"), bIsControlledLocally ? 0.0f : 1.0f);
 
@@ -808,13 +1089,27 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			if (NewRightHandPose == RightHand_Idle && bRightTrigger)
 				NewRightHandPose = RightHand_Surrender;
 
-			if (PressedReloadTime != 0.f && FPlatformTime::Seconds() - PressedReloadTime > 1.0f && LeftHandItem)
+			if (PressedReloadTime != 0.f && FPlatformTime::Seconds() - PressedReloadTime > 0.5f && LeftHandItem)
 			{
 				NewLeftHandPose = LeftHand_Drop;
 			}
-			if (PressedHolsterTime != 0.f && FPlatformTime::Seconds() - PressedHolsterTime > 1.0f && RightHandItem)
+			if (PressedHolsterTime != 0.f && FPlatformTime::Seconds() - PressedHolsterTime > 0.5f && RightHandItem)
 			{
 				NewRightHandPose = RightHand_Drop;
+			}
+			if (bLoadingAmmoToMagazine)
+			{
+				if (bLoadingAmmoInHand)
+					NewRightHandPose = RightHand_LoadAmmo;
+				else
+					NewRightHandPose = RightHand_PickupAmmo;
+			}
+			if (bLoadingAmmoToWeapon)
+			{
+				if (bLoadingAmmoInHand)
+					NewLeftHandPose = LeftHand_LoadAmmo;
+				else
+					NewLeftHandPose = LeftHand_PickupAmmo;
 			}
 		}
 
@@ -873,6 +1168,27 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			RightHandTargetLocation = RightHandSlideLocation + CrouchZOffset;
 			RightHandTargetRotation = RightHandSlideRotation;
 		}
+		else if (NewRightHandPose == RightHand_M9_SlideLocked)
+		{
+			static FVector RightHandSlideLockedLocation = FVector(28.f, 6.f, 32.f);
+			static FRotator RightHandSlideLockedRotation = FRotator(-10.f, 5.f, -45.f);
+			RightHandTargetLocation = RightHandSlideLockedLocation + CrouchZOffset;
+			RightHandTargetRotation = RightHandSlideLockedRotation;
+		}
+		else if (NewRightHandPose == RightHand_PickupAmmo)
+		{
+			static FVector RightHandAmmoLocation = FVector(8.f, 16.f, 0.f);
+			static FRotator RightHandAmmoRotation = FRotator(0.f, 0.f, 0.f);
+			RightHandTargetLocation = RightHandAmmoLocation + CrouchZOffset;
+			RightHandTargetRotation = RightHandAmmoRotation;
+		}
+		else if (NewRightHandPose == RightHand_LoadAmmo)
+		{
+			static FVector RightHandLoadAmmoLocation = FVector(28.f, -4.f, 40.f);
+			static FRotator RightHandLoadAmmoRotation = FRotator(0.f, 0.f, -90.f);
+			RightHandTargetLocation = RightHandLoadAmmoLocation + CrouchZOffset;
+			RightHandTargetRotation = RightHandLoadAmmoRotation;
+		}
 
 		if (bReachingForHolster)
 		{
@@ -891,7 +1207,7 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			GetController()->GetPlayerViewPoint(WorldRightHandLocation, CameraViewRotation);
 
 			//If we've been running, make the aim move up/down on a sin wave
-			CameraViewRotation = WorldViewRotation + FRotator(1.5f * PantingAlpha * FMath::Sin(GWorld->GetTimeSeconds() * 6.f), 0.f, 0.f);
+			CameraViewRotation = WorldViewRotation + FRotator(2.5f * PantingAlpha * FMath::Sin(GWorld->GetTimeSeconds() * 6.f), 0.f, 0.f);
 
 			//Position the gun 32 cm in front of the player's eye and account for the socket's offset from the bone
 			WorldRightHandLocation += CameraViewRotation.Quaternion().RotateVector(GunOffset);
@@ -994,6 +1310,27 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 			LeftHandTargetLocation = LeftHandMagazineLocation + CrouchZOffset;
 			LeftHandTargetRotation = LeftHandMagazineRotation;
 		}
+		else if (NewLeftHandPose == LeftHand_M9_SlideLocked)
+		{
+			static FVector ReadyLocationOffset = FVector(1.f, -7.f, -3.f);
+			static FRotator ReadyRotationOffset = FRotator(0.f, 0.f, 0.f);
+			LeftHandTargetLocation = RightHandTargetLocation + RightHandTargetRotation.Quaternion().RotateVector(ReadyLocationOffset);
+			LeftHandTargetRotation = RightHandTargetRotation + ReadyRotationOffset;
+		}
+		else if (NewLeftHandPose == LeftHand_PickupAmmo)
+		{
+			static FVector LeftHandAmmoLocation = FVector(8.f, -16.f, 0.f);
+			static FRotator LeftHandAmmoRotation = FRotator(0.f, 0.f, 0.f);
+			LeftHandTargetLocation = LeftHandAmmoLocation + CrouchZOffset;
+			LeftHandTargetRotation = LeftHandAmmoRotation;
+		}
+		else if (NewLeftHandPose == LeftHand_LoadAmmo)
+		{
+			static FVector LeftHandLoadAmmoLocation = FVector(28.f, 6.f, 32.f);
+			static FRotator LeftHandLoadAmmoRotation = FRotator(0.f, 0.f, -90.f);
+			LeftHandTargetLocation = LeftHandLoadAmmoLocation + CrouchZOffset;
+			LeftHandTargetRotation = LeftHandLoadAmmoRotation;
+		}
 
 		//Animate towards the target location
 		FVector NewLeftHandLocation;
@@ -1015,20 +1352,60 @@ void AGunLockCharacter::Tick(float DeltaSeconds)
 		bLeftHandInPosition = NewLeftHandLocation.Equals(LeftHandTargetLocation);
 		bRightHandInPosition = NewRightHandLocation.Equals(RightHandTargetLocation);
 
-		if (bLeftHandInPosition && LeftHandPose == LeftHand_Drop)
+		if (bLeftHandInPosition)
 		{
-			PressedReloadTime = 0.f;
-			DropItem(false);
-		}
-		if (bRightHandInPosition && RightHandPose == RightHand_Drop)
-		{
-			PressedHolsterTime = 0.f;
-			DropItem(true);
+			if (LeftHandPose == LeftHand_Drop)
+			{
+				PressedReloadTime = 0.f;
+				DropItem(false);
+			}
+			else if (LeftHandPose == LeftHand_PickupAmmo)
+			{
+				if (bLoadingAmmoToWeapon)
+				{
+					bLoadingAmmoInHand = true;
+				}
+				else
+				{
+					check(LeftHandItem);
+					ServerPocketAmmo();
+				}
+			}
+			else if (LeftHandPose == LeftHand_LoadAmmo)
+			{
+				bLoadingAmmoInHand = false;
+				ServerLoadAmmoToWeapon(false);
+			}
 		}
 
-		if (bRightHandInPosition && bReachingForHolster)
+		if (bRightHandInPosition)
 		{
-			HolsterItem();
+			if (RightHandPose == RightHand_Drop)
+			{
+				PressedHolsterTime = 0.f;
+				DropItem(true);
+			}
+			else if (RightHandPose == RightHand_PickupAmmo)
+			{
+				if (bLoadingAmmoToMagazine)
+				{
+					bLoadingAmmoInHand = true;
+				}
+				else
+				{
+					check(RightHandItem);
+					ServerPocketAmmo();
+				}
+			}
+			else if (RightHandPose == RightHand_LoadAmmo)
+			{
+				bLoadingAmmoInHand = false;
+				ServerLoadAmmoToMagazine(false);
+			}
+			else if (bReachingForHolster)
+			{
+				HolsterItem();
+			}
 		}
 	}
 }

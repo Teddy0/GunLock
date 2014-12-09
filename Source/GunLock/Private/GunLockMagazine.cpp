@@ -19,13 +19,23 @@ void AGunLockMagazine::BeginPlay()
 {
 	Super::BeginPlay();
 
-	Rounds = FMath::RandRange(3, MaxRounds);
-
-	BulletMaterials.Empty(5);
-	for (int32 i = 1; i < 6; i++)
+	if (Role == ROLE_Authority)
 	{
-		BulletMaterials.Add(MagazineMesh->CreateAndSetMaterialInstanceDynamic(i));
+		//Server sets the number of rounds
+		Rounds = 1 + FMath::Square(FMath::FRand()) * 4;
 	}
+
+	UpdateBulletMaterials();
+}
+
+void AGunLockMagazine::ClientUpdateRounds_Implementation(int32 InRounds)
+{
+	Rounds = InRounds;
+	UpdateBulletMaterials();
+}
+
+void AGunLockMagazine::OnRep_RoundsUpdated()
+{
 	UpdateBulletMaterials();
 }
 
@@ -40,20 +50,17 @@ void AGunLockMagazine::GetHandStates(int32& RightHandState, int32& LeftHandState
 {
 	if (LeftHandState != LeftHand_InsertMagazine)
 	{
-		if (Rounds == 0)
-			LeftHandState = LeftHand_Drop;
-		else
-			LeftHandState = LeftHand_Magazine;
+		LeftHandState = LeftHand_Magazine;
 
 		//If we've got a gun, hold it in the empty state
-		if (RightHandState != RightHand_Idle)
+		if (RightHandState >= RightHand_M9_Ready && RightHandState <= RightHand_M9_SlideLocked)
 			RightHandState = RightHand_M9_Empty;
 	}
 }
 
 bool AGunLockMagazine::CanPickupItem()
 {
-	return Super::CanPickupItem() && Rounds != 0;
+	return Super::CanPickupItem();
 }
 
 void AGunLockMagazine::ItemPickedup(AGunLockCharacter* NewOwner)
@@ -74,11 +81,11 @@ void AGunLockMagazine::DropItem()
 {
 	Super::DropItem();
 
-	//Client side code for dropping an item
+/*	//Client side code for dropping an item
 	if (Rounds == 0 && DropItemEffect)
 	{
 		UGameplayStatics::SpawnEmitterAtLocation(this, DropItemEffect, GetActorLocation(), GetActorRotation());
-	}
+	}*/
 }
 
 void AGunLockMagazine::AttachToGun(AGunLockWeapon* NewWeapon)
@@ -89,6 +96,15 @@ void AGunLockMagazine::AttachToGun(AGunLockWeapon* NewWeapon)
 
 void AGunLockMagazine::UpdateBulletMaterials()
 {
+	if (BulletMaterials.Num() == 0)
+	{
+		BulletMaterials.Empty(5);
+		for (int32 i = 1; i < 6; i++)
+		{
+			BulletMaterials.Add(MagazineMesh->CreateAndSetMaterialInstanceDynamic(i));
+		}
+	}
+
 	for (int32 i = 0; i < 5; i++)
 	{
 		if (BulletMaterials[i])

@@ -9,10 +9,17 @@ class AGunLockItem : public AActor
 	GENERATED_UCLASS_BODY()
 
 	virtual bool RightItemHand() { return false; }
+	virtual void AllowRightHandPickup(bool bAllowRightHand) {};
 	virtual bool CanPickupItem();
 
 	virtual void ItemPickedup(AGunLockCharacter* NewOwner);
 	virtual void NotifyOwnerDied();
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void ItemPickedupEvent();
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void ItemDestroyedEvent();
 
 	virtual void GetHandStates(int32& RightHandState, int32& LeftHandState)
 	{

@@ -14,7 +14,7 @@ AGunLockScoreboard::AGunLockScoreboard(const class FPostConstructInitializePrope
 	{
 		TextComponents[i] = PCIP.CreateDefaultSubobject<UTextRenderComponent>(this, *FString::Printf(TEXT("TextRenderComponent_%i"), i));
 		if (i==0)
-			TextComponents[i]->Text = TEXT("GunLock v0.1.4");
+			TextComponents[i]->Text = TEXT("GunLock v0.2.1");
 		else
 			TextComponents[i]->Text = TEXT("");
 		TextComponents[i]->TextRenderColor = FColor(0, 0, 0);

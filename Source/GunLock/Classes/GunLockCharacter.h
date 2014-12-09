@@ -3,6 +3,17 @@
 
 #include "GunLockCharacter.generated.h"
 
+enum EBloodComponentIndex
+{
+	Blood_Lungs,
+	Blood_Guts,
+	Blood_RightArm,
+	Blood_LeftArm,
+	Blood_RightLeg,
+	Blood_LeftLeg,
+	Blood_MAX
+};
+
 UCLASS(config=Game)
 class AGunLockCharacter : public ACharacter
 {
@@ -21,8 +32,22 @@ class AGunLockCharacter : public ACharacter
 	UPROPERTY(BlueprintReadWrite, Replicated, Category = Health)
 	float Health;
 
+	// How much health we're losing per second to bleeding
+	UPROPERTY(Replicated)
+	float BleedingDamage;
+
+	UPROPERTY(ReplicatedUsing = OnRep_BloodParticlesUpdated)
+	int32 BloodParticlesActiveMask;
+	UFUNCTION()
+	void OnRep_BloodParticlesUpdated();
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Gameplay)
+	TSubobjectPtr<class UParticleSystemComponent> BloodParticleComponents[Blood_MAX];
+
 	/** Take damage, handle death */
 	virtual float TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, class AActor* DamageCauser) override;
+
+	UPROPERTY()
+	class AController* LastDamageController;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Gameplay, ReplicatedUsing = OnRep_ClientOnDeath)
 	bool bIsDead;
@@ -50,6 +75,18 @@ class AGunLockCharacter : public ACharacter
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = Animation)
 	int32 LeftHandPose;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
+	class USoundCue* PainSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
+	class USoundCue* DieSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
+	class USoundCue* LoadAmmoSound;
+
+	UPROPERTY()
+	class UAudioComponent* PainAudioComponent;
+
 	UPROPERTY(Replicated)
 	class AGunLockItem* LeftHandItem;
 
@@ -58,6 +95,9 @@ class AGunLockCharacter : public ACharacter
 
 	UPROPERTY(Replicated)
 	class AGunLockItem* HolsteredItem;
+
+	UPROPERTY(Replicated)
+	uint32 Ammo;
 
 	UPROPERTY()
 	bool bReachingForHolster;
@@ -165,6 +205,24 @@ protected:
 	void ServerHolsterItem(bool Unholstering);
 	void HolsterItem();
 
+	UFUNCTION(reliable, server, WithValidation)
+	void ServerPocketAmmo();
+
+	UFUNCTION(reliable, server, WithValidation)
+	void ServerLoadAmmoToMagazine(bool bPickupAmmo);
+	UFUNCTION(reliable, server, WithValidation)
+	void ServerLoadAmmoToWeapon(bool bPickupAmmo);
+
+	UPROPERTY(replicated)
+	bool bLoadingAmmoToMagazine;
+	UPROPERTY(replicated)
+	bool bLoadingAmmoToWeapon;
+	UPROPERTY()
+	bool bLoadingAmmoInHand;
+
+	UPROPERTY(replicated)
+	bool bLoadingWeapon;
+
 	/** Flag to indicate player is holding down the aim button */
 	UPROPERTY()
 	bool bIsAiming;
@@ -187,6 +245,9 @@ protected:
 
 	/** Handler for a touch input beginning. */
 	void TouchStarted(const ETouchIndex::Type FingerIndex, const FVector Location);
+
+	UFUNCTION(NetMulticast, unreliable)
+	virtual void NetMulticast_PlaySound(class USoundCue* Sound, bool bFollow);
 
 	/** Fires a projectile. */
 	void OnTriggerPull();
@@ -224,6 +285,8 @@ protected:
 	void OnHMDResetButton();
 	void OnAimEyeLeft();
 	void OnAimEyeRight();
+	void OnPushToTalk();
+	void OnReleasePushToTalk();
 	void OnMenuButton();
 	void OnQuitButton();
 

@@ -46,6 +46,8 @@ void AGunLockItem::ItemPickedup(AGunLockCharacter* NewOwner)
 		}
 		SpawnPoint = NULL;
 	}
+
+	ItemPickedupEvent();
 }
 
 void AGunLockItem::NotifyOwnerDied()

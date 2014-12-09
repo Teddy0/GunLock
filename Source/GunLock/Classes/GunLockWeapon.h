@@ -20,6 +20,9 @@ struct FShotInfo
 
 	UPROPERTY()
 	int32 SurfaceType;
+
+	UPROPERTY()
+	float ShotTime;
 };
 
 UCLASS(config = Game)
@@ -30,6 +33,9 @@ class AGunLockWeapon : public AGunLockItem
 	/** Gun mesh: Represents the player's weapon */
 	UPROPERTY(VisibleAnywhere, Category = Mesh)
 	TSubobjectPtr<class USkeletalMeshComponent> GunMesh;
+
+	UPROPERTY()
+	class UMaterialInstanceDynamic* BulletMaterial;
 
 	/** Particle system for firing */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Particles)
@@ -52,6 +58,9 @@ class AGunLockWeapon : public AGunLockItem
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
 	class USoundCue* MagazineInSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
+	class USoundCue* HolsterSound;
 
 	/** Bullet impact sounds/FX */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
@@ -88,6 +97,8 @@ class AGunLockWeapon : public AGunLockItem
 	UPROPERTY()
 	bool WantSlidePull;
 
+	UFUNCTION(reliable, client)
+	void ClientRoundChambered();
 	UPROPERTY(replicated)
 	bool RoundChambered;
 
@@ -142,9 +153,12 @@ public:
 	void ServerOnReload();
 	void OnReload();
 
+	virtual void BeginPlay() override;
 	virtual void GetHandStates(int32& RightHandState, int32& LeftHandState);
 	virtual void ItemPickedup(AGunLockCharacter* NewOwner);
 	virtual void NotifyOwnerDied();
 	virtual bool RightItemHand() { return true; }
+
+	void UpdateBulletMaterial();
 };
 

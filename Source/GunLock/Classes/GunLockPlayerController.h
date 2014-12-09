@@ -37,6 +37,7 @@ class AGunLockPlayerController : public APlayerController
 	bool VRComfortMode;
 
 public:
+	virtual void BeginPlayingState() override;
 	virtual void SpawnPlayerCameraManager() override;
 
 	/** Add Yaw (turn) input */
@@ -60,4 +61,7 @@ public:
 	//For debugging
 	UFUNCTION(exec)
 	virtual void Suicide();
+
+	UFUNCTION(BlueprintCallable, Category = "Camera")
+	FVector GetHMDCameraLocation() const;
 };
