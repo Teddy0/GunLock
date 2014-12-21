@@ -249,11 +249,10 @@ float AGunLockCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 				MovementComponent->ForceReplicationUpdate();
 			}
 
-			//Simple scoring. +1 for kill, -1 for death
-			if (PlayerState)
-				PlayerState->Score -= 1.0f;
-			if (EventInstigator && EventInstigator != Controller && EventInstigator->PlayerState)
-				EventInstigator->PlayerState->Score += 1.0f;
+			//Notify gamemode for scoring
+			AGunLockGameMode* GameMode = Cast<AGunLockGameMode>(GetWorld()->GetAuthGameMode());
+			if (GameMode)
+				GameMode->PlayerKilled(Controller, EventInstigator);
 
 			bIsDead = true;
 
@@ -507,8 +506,6 @@ void AGunLockCharacter::ServerPocketAmmo_Implementation()
 bool AGunLockCharacter::ServerLoadAmmoToMagazine_Validate(bool bPickupAmmo) { return true; }
 void AGunLockCharacter::ServerLoadAmmoToMagazine_Implementation(bool bPickupAmmo)
 {
-	UE_LOG(LogGunLock, Warning, TEXT("ServerLoadAmmoToMagazine: bPickupAmmo: %s"), bPickupAmmo ? TEXT("TRUE") : TEXT("FALSE"));
-
 	AGunLockMagazine* CurrentMagazine = Cast<AGunLockMagazine>(LeftHandItem);
 	if (!CurrentMagazine || Ammo <= 0 || CurrentMagazine->Rounds+1 > CurrentMagazine->MaxRounds)
 	{
@@ -520,8 +517,6 @@ void AGunLockCharacter::ServerLoadAmmoToMagazine_Implementation(bool bPickupAmmo
 	{
 		if (!bLoadingAmmoToMagazine)
 		{
-			UE_LOG(LogGunLock, Warning, TEXT("ServerLoadAmmoToMagazine: bPickupAmmo"));
-
 			bLoadingAmmoToMagazine = true;
 		}
 	}
@@ -532,8 +527,6 @@ void AGunLockCharacter::ServerLoadAmmoToMagazine_Implementation(bool bPickupAmmo
 		CurrentMagazine->ClientUpdateRounds(CurrentMagazine->Rounds);
 		CurrentMagazine->NetMulticast_PlaySound(LoadAmmoSound, true);
 		Ammo--;
-
-		UE_LOG(LogGunLock, Warning, TEXT("ServerLoadAmmoToMagazine: CurrentMagazine->Rounds: %i Ammo: %i"), CurrentMagazine->Rounds, Ammo);
 	}
 }
 
@@ -975,17 +968,24 @@ void AGunLockCharacter::NetMulticast_PlaySound_Implementation(USoundCue* Sound, 
 	UGameplayStatics::PlaySound(this, Sound, RootComponent, NAME_None, bFollow, 1.0f, 1.0f);
 }
 
+void AGunLockCharacter::OnRep_PlayerState()
+{
+	UpdateTeamColors();
+}
+
+void AGunLockCharacter::UpdateTeamColors()
+{
+	//Update the player color (one time only)
+	AGunLockPlayerState* GunLockPlayerState = Cast<AGunLockPlayerState>(PlayerState);
+	if (GunLockPlayerState)
+	{
+		BodyMaterial->SetVectorParameterValue(TEXT("JacketColor"), GetPlayerColor(GunLockPlayerState->GetTeamNum()));
+	}
+}
+
 void AGunLockCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-
-	//Update the player color (one time only)
-	if (PlayerState && BodyMaterial)
-	{
-		uint32 SkinId = PlayerState->PlayerId % 4;
-		BodyMaterial->SetVectorParameterValue(TEXT("JacketColor"), GetPlayerColor(SkinId));
-		BodyMaterial = NULL;
-	}
 
 	if (Role == ROLE_Authority && BleedingDamage > 0.f )
 	{

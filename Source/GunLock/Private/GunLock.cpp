@@ -8,12 +8,10 @@ DEFINE_LOG_CATEGORY(LogGunLock);
 
 FLinearColor GetPlayerColor(uint32 SkinId)
 {
-	if (SkinId == 0)
-		return FLinearColor(0.f, 0.f, 0.f);
-	else if (SkinId == 1)
-		return FLinearColor(0.05f, 0.23f, 0.05f);
+	if (SkinId == 1)
+		return FLinearColor(0.03f, 0.05f, 0.23f); 
 	else if (SkinId == 2)
 		return FLinearColor(0.5f, 0.f, 0.f);
-	else //if (SkinId == 3)
-		return FLinearColor(0.03f, 0.05f, 0.23f);
+
+	return FLinearColor(0.f, 0.f, 0.f);
 }

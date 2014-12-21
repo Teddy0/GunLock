@@ -160,6 +160,12 @@ class AGunLockCharacter : public ACharacter
 	UPROPERTY()
 	FVector GunOffset;
 
+	/** PlayerState Replication Notification Callback */
+	virtual void OnRep_PlayerState() override;
+
+	UFUNCTION()
+	void UpdateTeamColors();
+
 protected:
 	/** Position of player's head in local space */
 	UPROPERTY(Replicated)

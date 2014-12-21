@@ -36,6 +36,15 @@ class AGunLockPlayerController : public APlayerController
 	UPROPERTY(globalconfig)
 	bool VRComfortMode;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
+	class USoundCue* RedWinSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
+	class USoundCue* BlueWinSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Audio)
+	class USoundCue* DrawSound;
+
 public:
 	virtual void BeginPlayingState() override;
 	virtual void SpawnPlayerCameraManager() override;
@@ -64,4 +73,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Camera")
 	FVector GetHMDCameraLocation() const;
+
+	UFUNCTION(reliable, client)
+	virtual void ResetClient();
+
+	UFUNCTION(reliable, client)
+	virtual void RoundWinSound(int32 TeamNumber);
 };

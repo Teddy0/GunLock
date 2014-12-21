@@ -146,6 +146,27 @@ void AGunLockPlayerController::Suicide()
 	}
 }
 
+void AGunLockPlayerController::ResetClient_Implementation()
+{
+	//Clean up the client side objects when the world resets
+	for (TObjectIterator<AGunLockCharacter> It; It; ++It)
+	{
+		AGunLockCharacter* Pawn = *It;
+		Pawn->Destroy();
+	}
+}
+
+void AGunLockPlayerController::RoundWinSound_Implementation(int32 WinningTeam)
+{
+	USoundCue* RoundWinSound = DrawSound;
+	if (WinningTeam == 1)
+		RoundWinSound = BlueWinSound;
+	else if (WinningTeam == 2)
+		RoundWinSound = RedWinSound;
+
+	UGameplayStatics::PlaySoundAtLocation(this, RoundWinSound, FVector::ZeroVector, 1.f, 1.f, 0.f, NULL);
+}
+
 FVector AGunLockPlayerController::GetHMDCameraLocation() const
 {
 	FVector WorldViewLocation;
